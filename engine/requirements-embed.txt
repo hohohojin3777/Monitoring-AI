@@ -1,0 +1,5 @@
+# (선택) 고정밀 한국어 임베딩 — KoSimCSE / ko-sentence-transformers
+# torch 포함으로 용량이 큼(~수백MB~2GB). embed_provider=kosimcse 일 때만 필요.
+# 설치: pip install -r requirements-embed.txt
+sentence-transformers>=3.0
+torch>=2.2

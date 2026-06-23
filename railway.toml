@@ -1,0 +1,11 @@
+[build]
+builder = "nixpacks"
+
+[deploy]
+startCommand = "python -m engine.main"
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 5
+
+[deploy.healthcheck]
+# 엔진은 HTTP 서버 없음 — 프로세스 생존 여부로만 체크
+httpPath = ""

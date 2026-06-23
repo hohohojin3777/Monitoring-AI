@@ -1,0 +1,60 @@
+rules_version = '2';
+
+// 모니터링 AI Firestore 보안 규칙.
+// 엔진은 Admin SDK 로 쓰므로 규칙을 우회한다. 아래 규칙은 "대시보드(클라이언트 SDK)" 접근용.
+// 원칙: target 멤버만 읽기. 대응(responses)은 관리자만 작성. 본인 확인(acks)만 본인이 작성.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+    function isMember(tid) {
+      return signedIn() &&
+        exists(/databases/$(database)/documents/targets/$(tid)/members/$(request.auth.uid));
+    }
+    function memberRole(tid) {
+      return get(/databases/$(database)/documents/targets/$(tid)/members/$(request.auth.uid)).data.role;
+    }
+    function isAdmin(tid) {
+      return isMember(tid) && memberRole(tid) == 'admin';
+    }
+
+    match /targets/{tid} {
+      allow read: if isMember(tid);
+      allow write: if isAdmin(tid);          // target 설정 변경은 관리자만
+
+      // 멤버 명단: 멤버는 읽기, 관리자만 변경
+      match /members/{uid} {
+        allow read: if isMember(tid);
+        allow write: if isAdmin(tid);
+      }
+
+      // 엔진이 쓰는 읽기전용 컬렉션 (Admin SDK 는 규칙 우회)
+      match /items/{doc}        { allow read: if isMember(tid); allow write: if false; }
+      match /alerts/{doc}       { allow read: if isMember(tid); allow write: if false; }
+      match /reports/{doc}      { allow read: if isMember(tid); allow write: if false; }
+      match /keywordTrend/{doc} { allow read: if isMember(tid); allow write: if false; }
+      match /authors/{doc}      { allow read: if isMember(tid); allow write: if false; }
+      match /rejected/{doc}     { allow read: if isMember(tid); allow write: if false; }
+
+      match /clusters/{cid} {
+        allow read: if isMember(tid);
+        allow update: if isAdmin(tid);       // 관리자: 상태(active/resolved) 변경
+        allow create, delete: if false;      // 생성/삭제는 엔진만
+
+        // 캠프 대응: 관리자만 작성/수정, 멤버는 조회
+        match /responses/{rid} {
+          allow read: if isMember(tid);
+          allow create, update, delete: if isAdmin(tid);
+        }
+
+        // 회원 확인(읽음·링크클릭): 본인 문서만 본인이 작성
+        match /acks/{uid} {
+          allow read: if isMember(tid);
+          allow create, update: if isMember(tid) && request.auth.uid == uid;
+        }
+      }
+    }
+  }
+}

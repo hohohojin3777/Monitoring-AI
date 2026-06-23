@@ -1,0 +1,24 @@
+# 모니터링 AI 엔진 — 코어 의존성 (노트북에서 실행)
+# 고정밀 한국어 임베딩(KoSimCSE)은 무거우므로 requirements-embed.txt 로 분리
+
+httpx>=0.27
+python-dotenv>=1.0
+pydantic>=2.7
+pydantic-settings>=2.3
+tenacity>=8.3
+loguru>=0.7
+APScheduler>=3.10
+
+# 분석
+anthropic>=0.40
+scikit-learn>=1.5      # TF-IDF 폴백 임베딩 + 클러스터링 유틸
+numpy>=1.26
+
+# 수집/스크래핑
+feedparser>=6.0
+beautifulsoup4>=4.12
+lxml>=5.2
+playwright>=1.44
+
+# 저장 (Firestore)
+firebase-admin>=6.5

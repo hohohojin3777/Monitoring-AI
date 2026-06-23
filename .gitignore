@@ -1,0 +1,31 @@
+# ── Python (engine) ──
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+
+# ── 비밀/키 (절대 커밋 금지) ──
+.env
+.env.local
+*serviceAccountKey*.json
+*serviceAccount*.json
+*-firebase-adminsdk-*.json
+
+# ── Node (dashboard) ──
+node_modules/
+dist/
+.firebase/
+*.log
+
+# ── 임시 ──
+_pdf_pages/
+.DS_Store
+Thumbs.db
+.playwright-mcp/
+*.pdf
+
+# ── 모델 캐시 ──
+.cache/
+models/

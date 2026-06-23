@@ -1,0 +1,11 @@
+[phases.setup]
+nixPkgs = ["python311", "chromium", "nss", "freetype", "harfbuzz", "ca-certificates", "ttf-dejavu"]
+
+[phases.install]
+cmds = [
+  "pip install -r engine/requirements.txt",
+  "python -m playwright install chromium --with-deps"
+]
+
+[start]
+cmd = "python -m engine.main"
