@@ -25,6 +25,7 @@ _pdf_pages/
 Thumbs.db
 .playwright-mcp/
 *.pdf
+.claude/
 
 # ── 모델 캐시 ──
 .cache/
