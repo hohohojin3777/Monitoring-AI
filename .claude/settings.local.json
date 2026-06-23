@@ -1,8 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "PowerShell(Write-Output \"=== npm global claude ===\"; \\(Get-Command claude -ErrorAction SilentlyContinue\\) | Select-Object Name, Source, Version | Format-List; Write-Output \"=== where claude ===\"; try { \\(Get-Command claude -All -ErrorAction Stop\\) | ForEach-Object { $_.Source } } catch { \"not found in PATH\" })",
-      "PowerShell(Write-Output \"=== CPU 아키텍처 ===\"; $env:PROCESSOR_ARCHITECTURE; Write-Output \"=== Git 설치 여부 \\(데스크톱 앱 필수\\) ===\"; $git = Get-Command git -ErrorAction SilentlyContinue; if \\($git\\) { \"설치됨: $\\($git.Source\\)\"; git --version } else { \"Git 미설치 -> 데스크톱 앱 실행 전 설치 필요\" })"
-    ]
-  }
-}
