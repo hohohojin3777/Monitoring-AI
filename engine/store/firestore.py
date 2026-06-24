@@ -45,8 +45,12 @@ class FirestoreStore:
                     cred = credentials.Certificate(cert_dict)
                     logger.info("[firestore] JSON 환경변수로 연결")
                 else:
-                    cred = credentials.Certificate(self._s.firebase_credentials_path)
-                    logger.info("[firestore] 파일 경로로 연결: {}", self._s.firebase_credentials_path)
+                    from pathlib import Path
+                    cred_path = self._s.firebase_credentials_path
+                    if not os.path.isabs(cred_path):
+                        cred_path = str(Path(__file__).parent.parent / cred_path)
+                    cred = credentials.Certificate(cred_path)
+                    logger.info("[firestore] 파일 경로로 연결: {}", cred_path)
                 firebase_admin.initialize_app(cred)
                 logger.info("[firestore] 연결 완료")
         self._db = firestore.client()
