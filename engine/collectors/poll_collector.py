@@ -5,6 +5,8 @@
 """
 from __future__ import annotations
 
+import json
+import os
 import re
 from datetime import datetime, timezone
 from typing import Optional
@@ -126,6 +128,45 @@ async def _fetch_article(client: httpx.AsyncClient, url: str) -> tuple[str, str]
         return "", ""
 
 
+async def _gpt_parse_candidates(title: str, text: str) -> tuple[list[dict], list[dict]]:
+    """GPT-4o-mini로 후보 지지율 수치 추출 (정규식 실패 폴백)."""
+    try:
+        openai_key = os.environ.get("OPENAI_API_KEY")
+        if not openai_key:
+            return [], []
+        from openai import AsyncOpenAI
+        client = AsyncOpenAI(api_key=openai_key)
+
+        snippet = (title + "\n\n" + text)[:3000]
+        resp = await client.chat.completions.create(
+            model="gpt-4o-mini",
+            max_tokens=400,
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "다음 기사에서 더불어민주당 전당대회 당대표 후보 지지율/적합도 수치를 추출하라.\n"
+                        "후보: 이재명, 정청래, 김민석, 송영길, 김용민, 김두관, 강훈식\n"
+                        "결과는 반드시 JSON만 출력. 형식:\n"
+                        '{\"general\":[{\"name\":\"김민석\",\"pct\":27.4},...],\"party\":[...]}\n'
+                        "- general: 전체/일반 응답자 기준\n"
+                        "- party: 민주당 지지층 기준 (없으면 빈 배열)\n"
+                        "수치가 없으면 {\"general\":[],\"party\":[]}"
+                    ),
+                },
+                {"role": "user", "content": snippet},
+            ],
+            response_format={"type": "json_object"},
+        )
+        parsed = json.loads(resp.choices[0].message.content or "{}")
+        general = [c for c in parsed.get("general", []) if c.get("name") in CANDIDATES and isinstance(c.get("pct"), (int, float))]
+        party = [c for c in parsed.get("party", []) if c.get("name") in CANDIDATES and isinstance(c.get("pct"), (int, float))]
+        return general, party
+    except Exception as e:
+        logger.warning("[poll_gpt] 파싱 실패: {}", e)
+        return [], []
+
+
 async def collect_poll_news(since: datetime | None = None) -> list[dict]:
     """네이버뉴스에서 전당대회 당대표 여론조사 기사 수집.
 
@@ -160,10 +201,17 @@ async def collect_poll_news(since: datetime | None = None) -> list[dict]:
             text, image = await _fetch_article(client, it.url)
             if text:
                 general, party = extract_poll_sections(text)
-                # 기존 snippet 수치(fallback)
-                snippet_cands = [{"name": m.group(1), "pct": float(m.group(2))}
-                                 for m in FULL_RE.finditer(f"{it.title} {it.content}")]
-                it.__dict__["_general"] = general or snippet_cands
+                # 정규식 실패 시 snippet 수치 시도
+                if not general:
+                    snippet_cands = [{"name": m.group(1), "pct": float(m.group(2))}
+                                     for m in FULL_RE.finditer(f"{it.title} {it.content}")]
+                    general = snippet_cands
+                # 여전히 없으면 GPT-4o-mini 파싱
+                if not general:
+                    general, party = await _gpt_parse_candidates(it.title, text)
+                    if general:
+                        logger.info("[poll_gpt] GPT 파싱 성공: {} → {}건", it.title[:30], len(general))
+                it.__dict__["_general"] = general
                 it.__dict__["_party"] = party
             if image:
                 it.image_url = image
