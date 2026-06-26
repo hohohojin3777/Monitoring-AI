@@ -55,22 +55,49 @@ def _build_collectors(target: Target):
 
 
 async def _collect_watch_accounts(target: Target, s) -> list[RawItem]:
-    """watchAccounts 계정 모니터링 수집."""
-    accounts = target.watch_accounts()
-    if not accounts:
-        return []
-    from .collectors.account_monitor import collect_watch_accounts
+    """watch_targets 기반 SNS 계정 직접 모니터링.
+
+    tier별 주기 적용:
+      S급 = 60분, A급 = 120분
+    현재 사이클에서 수집해야 할 타깃만 필터링.
+    """
     import os
+    from .watch_targets import get_targets
+    from .collectors.account_monitor import collect_targets
+
     profile_dir = s.browser_profile_dir
     if not os.path.isabs(profile_dir):
         profile_dir = str(Path(__file__).parent / profile_dir)
+
+    now = datetime.now(timezone.utc)
+    all_targets = get_targets(enabled_only=True)
+
+    # Firestore lastCollectedAt 체크 대신 단순 시간 기반 필터
+    # (30분 파이프라인 주기 기준: S=2사이클=60분, A=4사이클=120분)
+    cycle_min = s.collect_interval_minutes  # 기본 30분
+    collect_this_cycle: list[dict] = []
+    for t in all_targets:
+        interval = t.get("crawlIntervalMinutes", 120)
+        # 현재 사이클 번호 (0부터 시작)
+        cycle_num = int(now.timestamp() // 60 // cycle_min)
+        # tier별 주기를 파이프라인 사이클 수로 환산 → 해당 사이클이면 수집
+        cycles_needed = max(1, interval // cycle_min)
+        if cycle_num % cycles_needed == 0:
+            collect_this_cycle.append(t)
+
+    if not collect_this_cycle:
+        return []
+
+    logger.info("[pipeline] SNS 모니터링: {}개 타깃 수집 (전체 {}개 중)",
+                len(collect_this_cycle), len(all_targets))
+
     try:
         return await asyncio.wait_for(
-            collect_watch_accounts(accounts, profile_dir, limit_per_account=20),
-            timeout=480,
+            collect_targets(collect_this_cycle, profile_dir, limit_per_account=10),
+            timeout=600,  # 10분
         )
     except asyncio.TimeoutError:
-        logger.warning("[pipeline] watchAccounts 타임아웃(8분) — 건너뜀")
+        logger.warning("[pipeline] SNS 모니터링 타임아웃(10분) — 건너뜀")
         return []
 
 

@@ -129,32 +129,47 @@ class YouTubeCollector(Collector):
         since: datetime | None = None,
         limit: int = 10,
     ) -> list[RawItem]:
-        """특정 채널 ID의 최신 영상 수집."""
+        """후보 채널 ID의 최신 영상 수집 — playlistItems API 사용 (1 unit/call vs search 100 unit).
+
+        uploads playlist ID = channel_id 의 'UC' → 'UU' 치환.
+        """
         if not self.available():
             return []
         out: list[RawItem] = []
+        _PLAYLIST_ITEMS = "https://www.googleapis.com/youtube/v3/playlistItems"
         async with httpx.AsyncClient() as client:
             for channel_id in channel_ids:
+                # UC... → UU... (uploads playlist)
+                uploads_id = "UU" + channel_id[2:] if channel_id.startswith("UC") else channel_id
                 params = {
                     "part": "snippet",
-                    "channelId": channel_id,
-                    "type": "video",
-                    "order": "date",
+                    "playlistId": uploads_id,
                     "maxResults": min(limit, 50),
                 }
-                if since:
-                    params["publishedAfter"] = since.astimezone(timezone.utc).strftime(
-                        "%Y-%m-%dT%H:%M:%SZ"
-                    )
                 try:
-                    data = await self._get(client, _SEARCH, params)
+                    data = await self._get(client, _PLAYLIST_ITEMS, params)
                 except Exception as e:
                     logger.error("[youtube] 채널 {} 수집 실패: {}", channel_id, e)
                     continue
                 video_ids = [(it.get("id") or {}).get("videoId") for it in data.get("items", [])]
+                # playlistItems 응답 구조: snippet.resourceId.videoId
+                items_data = data.get("items", [])
+                video_ids = [
+                    it.get("snippet", {}).get("resourceId", {}).get("videoId")
+                    for it in items_data
+                ]
                 video_ids = [v for v in video_ids if v]
-                snippets = {(it.get("id") or {}).get("videoId"): it.get("snippet", {})
-                            for it in data.get("items", [])}
+                snippets = {
+                    it.get("snippet", {}).get("resourceId", {}).get("videoId"): it.get("snippet", {})
+                    for it in items_data
+                }
+                # since 필터 (publishedAt 비교)
+                if since:
+                    video_ids = [
+                        v for v in video_ids
+                        if _parse_iso(snippets.get(v, {}).get("publishedAt")) and
+                           _parse_iso(snippets.get(v, {}).get("publishedAt")) >= since
+                    ]
                 stats = await self._fetch_stats(client, video_ids)
                 for vid in video_ids:
                     sn = snippets.get(vid, {})
@@ -164,7 +179,7 @@ class YouTubeCollector(Collector):
                         source_type="video",
                         url=f"https://www.youtube.com/watch?v={vid}",
                         title=sn.get("title", ""),
-                        content=sn.get("description", ""),
+                        content=sn.get("description", "")[:300],
                         author=sn.get("channelTitle", ""),
                         author_id=channel_id,
                         published_at=_parse_iso(sn.get("publishedAt")),
@@ -174,6 +189,7 @@ class YouTubeCollector(Collector):
                             "comments": int(st.get("commentCount", 0)),
                         },
                         keyword=f"채널:{channel_id}",
+                        raw={"dedupeKey": f"youtube:{vid}", "sourceId": vid, "contentType": "video"},
                     ))
         logger.info("[youtube] 채널 수집 {}건 (채널 {}개)", len(out), len(channel_ids))
         return out
