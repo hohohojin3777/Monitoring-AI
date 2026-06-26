@@ -128,6 +128,25 @@ async def _fetch_article(client: httpx.AsyncClient, url: str) -> tuple[str, str]
         return "", ""
 
 
+def _parse_title_meta(title: str) -> dict:
+    """제목에서 매체명·기간 직접 파싱. 예: [천지일보 여론조사], [20260608-09]"""
+    meta: dict = {}
+    # 대괄호 안 내용 추출
+    brackets = re.findall(r'\[([^\]]+)\]', title)
+    for b in brackets:
+        # 날짜 패턴: 20260608-09 또는 20260606-08
+        date_m = re.match(r'(\d{4})(\d{2})(\d{2})-(\d{2})', b)
+        if date_m:
+            y, m, d1, d2 = date_m.groups()
+            meta["pollPeriod"] = f"{y}-{m}-{d1}~{y}-{m}-{d2}"
+            continue
+        # 여론조사 제외하고 매체명 추출
+        clean = re.sub(r'여론조사|정기여론조사', '', b).strip()
+        if clean and len(clean) >= 2:
+            meta["media"] = clean
+    return meta
+
+
 async def _gpt_parse_poll(title: str, text: str) -> dict:
     """GPT-4o-mini로 여론조사 전체 메타 + 후보 수치 추출."""
     try:
@@ -179,6 +198,15 @@ async def _gpt_parse_poll(title: str, text: str) -> dict:
             c for c in parsed.get("party", [])
             if c.get("name") in CANDIDATES and isinstance(c.get("pct"), (int, float))
         ]
+        # "-" 또는 빈값은 None으로 정리
+        for field in ["pollster", "media", "pollPeriod", "sampleGroup", "marginOfError", "surveyMethod"]:
+            if parsed.get(field) in ("-", "", "없음", "미상", "알 수 없음", None):
+                parsed[field] = None
+        # 제목 직접 파싱으로 보완
+        title_meta = _parse_title_meta(title)
+        for k, v in title_meta.items():
+            if v and not parsed.get(k):
+                parsed[k] = v
         return parsed
     except Exception as e:
         logger.warning("[poll_gpt] 파싱 실패: {}", e)

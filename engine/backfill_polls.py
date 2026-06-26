@@ -78,7 +78,7 @@ async def backfill():
             existing = d
             for field in ["pollster", "media", "pollPeriod", "sampleSize", "sampleGroup", "marginOfError", "surveyMethod"]:
                 val = meta.get(field)
-                if val and not existing.get(field):
+                if val and val not in ("-", "", "없음", "미상") and not existing.get(field):
                     update_data[field] = val
 
             if update_data:
