@@ -13,7 +13,7 @@ from loguru import logger
 
 from .config import get_settings
 from .store import FirestoreStore
-from .collectors.poll_collector import _fetch_article, _gpt_parse_poll, extract_poll_sections, FULL_RE
+from .collectors.poll_collector import _fetch_article, _gpt_parse_poll, _parse_title_meta, extract_poll_sections, FULL_RE
 
 
 async def backfill():
@@ -58,13 +58,17 @@ async def backfill():
                             for m in FULL_RE.finditer(snippet)]
 
             # GPT 파싱 (본문 또는 스니펫 기반) — 메타 포함
+            gpt_input = text or d.get("content") or d.get("snippet") or ""
+            meta = await _gpt_parse_poll(title, gpt_input)
             if not general:
-                gpt_input = text or d.get("content") or d.get("snippet") or ""
-                meta = await _gpt_parse_poll(title, gpt_input)
                 general = meta.get("general", [])
                 party = meta.get("party", party)
-            else:
-                meta = {}
+
+            # 제목 직접 파싱으로 메타 보완 (확실하게)
+            title_meta = _parse_title_meta(title)
+            for k, v in title_meta.items():
+                if v and not meta.get(k):
+                    meta[k] = v
 
             update_data: dict = {}
 
