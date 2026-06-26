@@ -23,8 +23,12 @@ async def backfill():
     tref = db.collection("targets").document("minju-jeondaehoe")
 
     polls = list(tref.collection("polls").stream())
-    no_data = [p for p in polls if not p.to_dict().get("candidatesGeneral") and not p.to_dict().get("candidates")]
-    logger.info("수치 없는 여론조사: {}건 백필 시작", len(no_data))
+    # 수치는 있지만 메타(조사기관·기간·매체 등)가 없는 것도 보강
+    no_data = [
+        p for p in polls
+        if not p.to_dict().get("pollster") or not p.to_dict().get("pollPeriod")
+    ]
+    logger.info("메타 보강 대상 여론조사: {}건", len(no_data))
 
     updated = 0
     async with httpx.AsyncClient() as client:
@@ -62,22 +66,32 @@ async def backfill():
             else:
                 meta = {}
 
+            update_data: dict = {}
+
+            # 수치가 새로 추출됐으면 저장
             if general:
-                update_data = {
-                    "candidatesGeneral": general,
-                    "candidatesParty": party,
-                    "hasData": len(general) >= 2,
-                }
-                # 메타 정보가 있으면 함께 저장
-                for field in ["pollster", "media", "pollPeriod", "sampleSize", "sampleGroup", "marginOfError", "surveyMethod"]:
-                    val = meta.get(field)
-                    if val:
-                        update_data[field] = val
+                update_data["candidatesGeneral"] = general
+                update_data["candidatesParty"] = party
+                update_data["hasData"] = len(general) >= 2
+
+            # 메타 정보 저장 (기존 값 덮어쓰지 않고 없는 것만)
+            existing = d
+            for field in ["pollster", "media", "pollPeriod", "sampleSize", "sampleGroup", "marginOfError", "surveyMethod"]:
+                val = meta.get(field)
+                if val and not existing.get(field):
+                    update_data[field] = val
+
+            if update_data:
                 tref.collection("polls").document(doc.id).update(update_data)
-                logger.info("✓ 백필 완료: {} → {}건 수치 | 기관: {}", title[:35], len(general), meta.get("pollster","미상"))
+                logger.info("✓ 보강 완료: {} | 기관:{} 기간:{} 매체:{}",
+                    title[:35],
+                    meta.get("pollster", "-"),
+                    meta.get("pollPeriod", "-"),
+                    meta.get("media", "-"),
+                )
                 updated += 1
             else:
-                logger.warning("✗ 수치 없는 기사: {}", title[:40])
+                logger.info("- 변경 없음: {}", title[:40])
 
     logger.info("백필 완료: {}건 / {}건 업데이트", updated, len(no_data))
 
