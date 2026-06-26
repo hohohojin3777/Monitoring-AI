@@ -76,9 +76,12 @@ async def backfill():
 
             # 메타 정보 저장 (기존 값 덮어쓰지 않고 없는 것만)
             existing = d
+            BAD_VALUES = {"-", "", "없음", "미상", "알 수 없음", None}
             for field in ["pollster", "media", "pollPeriod", "sampleSize", "sampleGroup", "marginOfError", "surveyMethod"]:
                 val = meta.get(field)
-                if val and val not in ("-", "", "없음", "미상") and not existing.get(field):
+                cur = existing.get(field)
+                # 좋은 새 값이 있고, 기존 값이 없거나 쓰레기 값이면 덮어쓰기
+                if val and val not in BAD_VALUES and (cur in BAD_VALUES or cur == "-"):
                     update_data[field] = val
 
             if update_data:
