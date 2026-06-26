@@ -31,22 +31,27 @@ _REL_DELTA = {
 }
 
 
+KST = timezone(timedelta(hours=9))
+
+
 def parse_korean_date(text: str, now: datetime | None = None) -> datetime | None:
+    """한국 커뮤니티 날짜 파싱. 모든 시간은 KST로 해석 후 UTC로 반환."""
     if not text:
         return None
-    now = now or datetime.now(timezone.utc)
+    # 커뮤니티 사이트는 KST 기준으로 시간 표시 → KST now 사용
+    now_kst = (now or datetime.now(KST)).astimezone(KST)
 
-    # 1) 상대 표현 (마지막 매치 우선)
+    # 1) 상대 표현
     rels = _REL.findall(text)
     if rels:
         n, unit = rels[-1]
-        return now - _REL_DELTA[unit](int(n))
+        return (now_kst - _REL_DELTA[unit](int(n))).astimezone(timezone.utc)
     if "어제" in text:
-        return now - timedelta(days=1)
+        return (now_kst - timedelta(days=1)).astimezone(timezone.utc)
     if "방금" in text or "오늘" in text:
-        return now
+        return now_kst.astimezone(timezone.utc)
 
-    # 2) 절대 일자 (마지막 매치 = 보통 메타영역)
+    # 2) 절대 일자 — KST로 해석
     fulls = list(_FULL.finditer(text))
     if fulls:
         g = fulls[-1]
@@ -54,19 +59,23 @@ def parse_korean_date(text: str, now: datetime | None = None) -> datetime | None
         if y < 100:
             y += 2000
         try:
-            return datetime(
+            dt_kst = datetime(
                 y, int(g.group(2)), int(g.group(3)),
                 int(g.group(4) or 0), int(g.group(5) or 0),
-                tzinfo=timezone.utc,
+                tzinfo=KST,
             )
+            return dt_kst.astimezone(timezone.utc)
         except ValueError:
             return None
 
-    # 3) 시간만 → 오늘
+    # 3) 시간만 → 오늘 KST. 현재보다 미래면 어제로 처리
     times = _TIME.findall(text)
     if times:
         hh, mn = int(times[-1][0]), int(times[-1][1])
         if hh <= 23 and mn <= 59:
-            return now.replace(hour=hh, minute=mn, second=0, microsecond=0)
+            dt_kst = now_kst.replace(hour=hh, minute=mn, second=0, microsecond=0)
+            if dt_kst > now_kst + timedelta(minutes=5):
+                dt_kst -= timedelta(days=1)
+            return dt_kst.astimezone(timezone.utc)
 
     return None

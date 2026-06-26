@@ -9,6 +9,7 @@ import {
   limit as fbLimit,
   setDoc,
   updateDoc,
+  deleteDoc,
   serverTimestamp,
   arrayUnion,
   type QueryConstraint,
@@ -52,7 +53,7 @@ function useCollection<T>(
 
 // ── 조회 훅 ──────────────────────────────────────────────────
 export function useClusters() {
-  return useCollection<Cluster>(["clusters"], [orderBy("lastSeen", "desc"), fbLimit(300)]);
+  return useCollection<Cluster>(["clusters"], [orderBy("lastSeen", "desc"), fbLimit(1000)]);
 }
 
 export function useCluster(id: string) {
@@ -68,8 +69,16 @@ export function useCluster(id: string) {
 export function useClusterItems(clusterId: string) {
   return useCollection<Item>(
     ["items"],
-    [where("clusterId", "==", clusterId), orderBy("collectedAt", "desc"), fbLimit(200)],
+    [where("clusterId", "==", clusterId), fbLimit(200)],
     [clusterId]
+  );
+}
+
+export function usePolls() {
+  return useCollection<any>(
+    ["polls"],
+    [orderBy("savedAt", "desc"), fbLimit(500)],
+    []
   );
 }
 
@@ -98,7 +107,7 @@ export function useReports() {
 }
 
 export function useAuthors() {
-  return useCollection<{ id: string; name: string; mainPlatform: string; score: number; postCount: number; targetMentions: number }>(
+  return useCollection<{ id: string; name: string; mainPlatform: string; score: number; postCount: number; targetMentions: number; tendency?: string; totalViews?: number; authorId?: string }>(
     ["authors"],
     [orderBy("score", "desc"), fbLimit(100)]
   );
@@ -151,6 +160,27 @@ export async function publishResponse(
 
 export async function setClusterStatus(clusterId: string, status: Cluster["status"]) {
   await updateDoc(doc(base(), "clusters", clusterId), { status });
+}
+
+export async function deleteReport(reportId: string) {
+  await deleteDoc(doc(db, "targets", T, "reports", reportId));
+}
+
+/** 현안 전략 분석 요청 (관리자 전용) */
+export async function requestStrategyMemo(topic: string, clusterIds: string[]) {
+  const ref = doc(collection(db, "targets", T, "strategyRequests"));
+  await setDoc(ref, {
+    topic,
+    clusterIds,
+    status: "pending",
+    requestedAt: serverTimestamp(),
+  });
+  return ref.id;
+}
+
+/** 전략 분석 요청 취소 (pending 상태만) */
+export async function cancelStrategyRequest(requestId: string) {
+  await deleteDoc(doc(db, "targets", T, "strategyRequests", requestId));
 }
 
 /** 회원 확인(읽음) 기록 */

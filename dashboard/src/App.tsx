@@ -10,6 +10,9 @@ import Keywords from "./pages/Keywords";
 import Authors from "./pages/Authors";
 import Rejected from "./pages/Rejected";
 import Settings from "./pages/Settings";
+import Members from "./pages/Members";
+import Polls from "./pages/Polls";
+import Allies from "./pages/Allies";
 
 function Splash({ text }: { text: string }) {
   return (
@@ -37,6 +40,9 @@ export default function App() {
         <Route path="/keywords" element={<Keywords />} />
         <Route path="/authors" element={<Authors />} />
         <Route path="/rejected" element={<Rejected />} />
+        <Route path="/polls" element={<Polls />} />
+        <Route path="/allies" element={<Allies />} />
+        <Route path="/members" element={<Members />} />
         <Route path="/settings" element={<Settings />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

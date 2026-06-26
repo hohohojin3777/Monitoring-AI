@@ -121,3 +121,68 @@ class YouTubeCollector(Collector):
             logger.error("[youtube] 통계 조회 실패: {}", e)
             return {}
         return {it["id"]: it.get("statistics", {}) for it in data.get("items", [])}
+
+    async def collect_channels(
+        self,
+        channel_ids: list[str],
+        *,
+        since: datetime | None = None,
+        limit: int = 10,
+    ) -> list[RawItem]:
+        """특정 채널 ID의 최신 영상 수집."""
+        if not self.available():
+            return []
+        out: list[RawItem] = []
+        async with httpx.AsyncClient() as client:
+            for channel_id in channel_ids:
+                params = {
+                    "part": "snippet",
+                    "channelId": channel_id,
+                    "type": "video",
+                    "order": "date",
+                    "maxResults": min(limit, 50),
+                }
+                if since:
+                    params["publishedAfter"] = since.astimezone(timezone.utc).strftime(
+                        "%Y-%m-%dT%H:%M:%SZ"
+                    )
+                try:
+                    data = await self._get(client, _SEARCH, params)
+                except Exception as e:
+                    logger.error("[youtube] 채널 {} 수집 실패: {}", channel_id, e)
+                    continue
+                video_ids = [(it.get("id") or {}).get("videoId") for it in data.get("items", [])]
+                video_ids = [v for v in video_ids if v]
+                snippets = {(it.get("id") or {}).get("videoId"): it.get("snippet", {})
+                            for it in data.get("items", [])}
+                stats = await self._fetch_stats(client, video_ids)
+                for vid in video_ids:
+                    sn = snippets.get(vid, {})
+                    st = stats.get(vid, {})
+                    out.append(RawItem(
+                        platform="youtube",
+                        source_type="video",
+                        url=f"https://www.youtube.com/watch?v={vid}",
+                        title=sn.get("title", ""),
+                        content=sn.get("description", ""),
+                        author=sn.get("channelTitle", ""),
+                        author_id=channel_id,
+                        published_at=_parse_iso(sn.get("publishedAt")),
+                        metrics={
+                            "views": int(st.get("viewCount", 0)),
+                            "likes": int(st.get("likeCount", 0)),
+                            "comments": int(st.get("commentCount", 0)),
+                        },
+                        keyword=f"채널:{channel_id}",
+                    ))
+        logger.info("[youtube] 채널 수집 {}건 (채널 {}개)", len(out), len(channel_ids))
+        return out
+
+
+# 전당대회 후보 공식 유튜브 채널 ID
+CANDIDATE_CHANNELS: dict[str, str] = {
+    "김민석": "UC0xm3nsJXdMEA6ILZRHCXvQ",
+    "정청래": "UCNRVHeIfz11ggS_JJvJFTnw",
+    "송영길": "UC6Swqra8BqePCs1ymFCdDMQ",
+    "김용민": "UCm6jDQGxHHBSHeHjin1bBaQ",
+}

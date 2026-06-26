@@ -2,18 +2,15 @@
 from __future__ import annotations
 
 from functools import lru_cache
-from pathlib import Path
 from typing import Literal
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-_ENV_FILE = Path(__file__).parent / ".env"
-
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=str(_ENV_FILE),
+        env_file=".env",
         env_file_encoding="utf-8",
         extra="ignore",
         case_sensitive=False,
@@ -32,10 +29,7 @@ class Settings(BaseSettings):
     claude_model_main: str = "claude-sonnet-4-6"
 
     # ── Firebase (Admin SDK) ──
-    # 로컬: 파일 경로 사용 (serviceAccountKey.json)
-    # Railway: FIREBASE_CREDENTIALS_JSON 에 JSON 문자열 통째로 붙여넣기 (파일 불필요)
     firebase_credentials_path: str = "serviceAccountKey.json"
-    firebase_credentials_json: str = ""  # JSON 문자열 (Railway 등 파일 못 쓰는 환경)
     firebase_project_id: str = ""
 
     # ── 임베딩 ──
@@ -60,10 +54,6 @@ class Settings(BaseSettings):
 
     # ── 스케줄 ──
     collect_interval_minutes: int = 30
-
-    # ── 텔레그램 알림 ──
-    telegram_bot_token: str = ""   # BotFather 에서 발급
-    telegram_chat_id: str = ""     # 채널/그룹 chat_id (음수 포함)
 
     # ── 스크래핑 / 브라우저 직접 수집 ──
     apify_api_token: str = ""
@@ -91,11 +81,6 @@ class Settings(BaseSettings):
             "거짓", "막말", "사퇴", "스캔들", "부정", "조작", "은폐",
         ]
     )
-
-    def has_firebase_credentials(self) -> bool:
-        """JSON 문자열 또는 파일 중 하나라도 있으면 True."""
-        import os
-        return bool(self.firebase_credentials_json) or os.path.exists(self.firebase_credentials_path)
 
     def require(self, *names: str) -> None:
         """필수 키가 비어있으면 명확한 오류를 던진다."""

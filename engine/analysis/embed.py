@@ -37,7 +37,7 @@ class TfidfEmbedder:
 
         if not texts:
             return np.zeros((0, 1), dtype=np.float32)
-        vec = TfidfVectorizer(analyzer="char_wb", ngram_range=(2, 4), min_df=1)
+        vec = TfidfVectorizer(analyzer="char_wb", ngram_range=(2, 4), min_df=1, max_features=5000)
         mat = vec.fit_transform(texts).astype(np.float32).toarray()
         return _l2_normalize(mat)
 

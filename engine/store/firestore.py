@@ -143,6 +143,32 @@ class FirestoreStore:
     def add_alert(self, target_id: str, alert: dict) -> None:
         self._target_ref(target_id).collection("alerts").add(alert)
 
+    def save_polls(self, target_id: str, polls: list[dict]) -> None:
+        """여론조사 결과 저장 — polls 컬렉션."""
+        import hashlib
+        coll = self._target_ref(target_id).collection("polls")
+        db = self.connect()
+        batch = db.batch()
+        n = 0
+        for p in polls:
+            key = p.get("regNo") or p.get("url") or str(p.get("title", ""))
+            doc_id = hashlib.sha256(key.encode()).hexdigest()[:16]
+            doc = {k: v for k, v in p.items() if v is not None}
+            doc["savedAt"] = datetime.now(timezone.utc)
+            # 새 파싱 결과에 후보 없으면 기존 데이터 보존 (덮어쓰기 방지)
+            if not doc.get("candidatesGeneral"):
+                doc.pop("candidatesGeneral", None)
+            if not doc.get("candidatesParty"):
+                doc.pop("candidatesParty", None)
+            batch.set(coll.document(doc_id), doc, merge=True)
+            n += 1
+            if n % _BATCH_LIMIT == 0:
+                batch.commit()
+                batch = db.batch()
+        if n % _BATCH_LIMIT:
+            batch.commit()
+        logger.info("[store] polls {}건 저장", n)
+
     def save_report(self, target_id: str, report_id: str, report: dict) -> None:
         self._target_ref(target_id).collection("reports").document(report_id).set(report)
 
@@ -269,6 +295,7 @@ def _item_doc(it: RawItem) -> dict:
         "clusterId": it.cluster_id,
         "rejected": it.rejected,
         "rejectReason": it.reject_reason,
+        "imageUrl": it.image_url or "",
     }
 
 

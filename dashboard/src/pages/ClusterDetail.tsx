@@ -2,9 +2,11 @@ import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useAuth } from "../auth";
 import {
+  cancelStrategyRequest,
   publishResponse,
   recordAck,
   recordLinkClick,
+  requestStrategyMemo,
   setClusterStatus,
   useAcks,
   useCluster,
@@ -21,6 +23,58 @@ const SENT_LABEL: Record<string, string> = {
   attack: "공격",
 };
 
+// ── 여론조사 수치 추출 ───────────────────────────────────────
+function extractPollData(text: string): { name: string; pct: number }[] {
+  const re = /([가-힣a-zA-Z]{2,8})\s*(\d{1,3}(?:\.\d+)?)\s*%/g;
+  const results: { name: string; pct: number }[] = [];
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) {
+    const pct = parseFloat(m[2]);
+    if (pct > 0 && pct <= 100) results.push({ name: m[1], pct });
+  }
+  return results.filter((r) => !["약", "이상", "미만", "이하", "오차"].includes(r.name));
+}
+
+function PollSection({ title, summary, items }: { title: string; summary: string; items: { title?: string; content?: string }[] }) {
+  const [open, setOpen] = useState(false);
+  // 제목+요약+수집된 글 전체에서 수치 추출
+  const allText = [title, summary, ...items.map((i) => `${i.title ?? ""} ${i.content ?? ""}`)].join(" ");
+  const data = extractPollData(allText).slice(0, 8);
+  if (data.length < 2) return null;
+  const max = Math.max(...data.map((d) => d.pct));
+  const COLORS = ["bg-blue-500", "bg-red-500", "bg-green-500", "bg-purple-500", "bg-amber-500", "bg-teal-500", "bg-pink-500", "bg-indigo-500"];
+  return (
+    <div>
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="flex w-full items-center justify-between rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-semibold text-blue-700 transition hover:bg-blue-100"
+      >
+        <span>📊 여론조사 그래프 보기</span>
+        <span className="text-blue-400">{open ? "▲ 접기" : "▼ 펼치기"}</span>
+      </button>
+      {open && (
+        <div className="mt-2 rounded-lg border border-blue-100 bg-white p-4">
+          <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-gray-400">지지율 현황</p>
+          <div className="flex flex-col gap-2">
+            {data.map((d, i) => (
+              <div key={i} className="flex items-center gap-3">
+                <span className="w-16 shrink-0 text-right text-sm font-medium text-gray-700">{d.name}</span>
+                <div className="flex-1 overflow-hidden rounded-full bg-gray-100 h-5">
+                  <div
+                    className={`h-full ${COLORS[i % COLORS.length]} rounded-full transition-all duration-700`}
+                    style={{ width: `${(d.pct / max) * 100}%` }}
+                  />
+                </div>
+                <span className="w-14 shrink-0 text-right text-sm font-bold text-gray-800">{d.pct}%</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function ClusterDetail() {
   const { id = "" } = useParams();
   const { user, role } = useAuth();
@@ -31,6 +85,25 @@ export default function ClusterDetail() {
   const isAdmin = role === "admin";
   const displayName = user?.email?.split("@")[0] ?? "회원";
   const resp = responses[0];
+  const [strategyRequesting, setStrategyRequesting] = useState(false);
+  const [strategyRequestId, setStrategyRequestId] = useState<string | null>(null);
+
+  async function handleStrategyRequest() {
+    if (!cluster) return;
+    setStrategyRequesting(true);
+    try {
+      const reqId = await requestStrategyMemo(cluster.title, [id]);
+      setStrategyRequestId(reqId);
+    } finally {
+      setStrategyRequesting(false);
+    }
+  }
+
+  async function handleStrategyCancel() {
+    if (!strategyRequestId) return;
+    await cancelStrategyRequest(strategyRequestId);
+    setStrategyRequestId(null);
+  }
 
   // 회원이 상세 진입 시 읽음 기록
   useEffect(() => {
@@ -84,6 +157,22 @@ export default function ClusterDetail() {
             >
               {cluster.status === "resolved" ? "대응 재개" : "대응 완료 처리"}
             </button>
+            {strategyRequestId ? (
+              <button
+                onClick={handleStrategyCancel}
+                className="rounded border border-red-300 bg-red-50 px-3 py-1.5 text-sm text-red-700 hover:bg-red-100"
+              >
+                전략 분석 요청됨 — 취소
+              </button>
+            ) : (
+              <button
+                onClick={handleStrategyRequest}
+                disabled={strategyRequesting}
+                className="rounded border border-purple-300 bg-purple-50 px-3 py-1.5 text-sm text-purple-700 hover:bg-purple-100 disabled:opacity-50"
+              >
+                {strategyRequesting ? "요청 중..." : "전략 분석 요청"}
+              </button>
+            )}
             <span className="self-center text-xs text-gray-400">
               상태: {cluster.status}
             </span>
@@ -91,8 +180,15 @@ export default function ClusterDetail() {
         )}
       </div>
 
-      {/* 캠프 대응 */}
-      <ResponsePanel
+      {/* 여론조사 그래프 */}
+      <PollSection
+        title={cluster.title ?? ""}
+        summary={cluster.summary ?? ""}
+        items={items}
+      />
+
+      {/* 캠프 대응 — 접기/펼치기 */}
+      <CollapsibleResponse
         clusterId={id}
         clusterTitle={cluster.title}
         isAdmin={isAdmin}
@@ -134,44 +230,91 @@ export default function ClusterDetail() {
       )}
 
       {/* 글 목록 */}
-      <section className="rounded-lg border border-gray-200 bg-white p-5">
-        <h2 className="font-semibold text-gray-900">글 목록 ({items.length})</h2>
-        <ul className="mt-3 divide-y">
-          {items.map((it) => (
-            <li key={it.id} className="py-2.5">
-              <div className="flex items-center gap-2 text-xs text-gray-400">
-                <Chip className="bg-gray-100 text-gray-600">{platformLabel(it.platform)}</Chip>
-                {it.sentiment && (
-                  <Chip
-                    className={
+      <section className="rounded-lg border border-gray-200 bg-white p-4 md:p-5">
+        <h2 className="font-semibold text-gray-900">수집 기사 / 글 ({items.length})</h2>
+        {items.length === 0 ? (
+          <p className="mt-3 text-sm text-gray-400">수집된 글이 없습니다.</p>
+        ) : (
+          <ul className="mt-3 divide-y">
+            {items.map((it) => (
+              <li key={it.id} className="py-3">
+                <div className="flex flex-wrap items-center gap-1.5 text-xs text-gray-400">
+                  <Chip className="bg-gray-100 text-gray-600">{platformLabel(it.platform)}</Chip>
+                  {it.sentiment && (
+                    <Chip className={
                       it.sentiment === "negative" || it.sentiment === "attack"
                         ? "bg-red-50 text-red-600"
                         : it.sentiment === "positive"
                           ? "bg-green-50 text-green-600"
                           : "bg-gray-50 text-gray-500"
-                    }
-                  >
-                    {SENT_LABEL[it.sentiment] ?? it.sentiment}
-                  </Chip>
+                    }>
+                      {SENT_LABEL[it.sentiment] ?? it.sentiment}
+                    </Chip>
+                  )}
+                  <span>{fmtDate(it.publishedAt)}</span>
+                  {it.author && <span>· {it.author}</span>}
+                </div>
+                <div className="mt-1.5 flex items-start justify-between gap-3">
+                  <p className="flex-1 text-sm font-medium leading-snug text-gray-800">
+                    {it.title || "(제목 없음)"}
+                  </p>
+                  {it.url && (
+                    <a
+                      href={it.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="shrink-0 rounded-lg bg-brand px-3 py-1.5 text-xs font-bold text-white shadow-sm hover:bg-brand-dark active:scale-95 transition"
+                    >
+                      원문 ↗
+                    </a>
+                  )}
+                </div>
+                {(it as any).imageUrl && (
+                  <a href={it.url} target="_blank" rel="noreferrer" className="mt-2 block">
+                    <img
+                      src={(it as any).imageUrl}
+                      alt={it.title}
+                      className="w-full max-h-64 rounded-lg object-cover border border-gray-100"
+                      onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+                    />
+                  </a>
                 )}
-                <span>{fmtDate(it.publishedAt)}</span>
-                {it.author && <span>· {it.author}</span>}
-              </div>
-              <a
-                href={it.url}
-                target="_blank"
-                rel="noreferrer"
-                className="mt-0.5 block font-medium text-gray-800 hover:text-brand hover:underline"
-              >
-                {it.title || it.url}
-              </a>
-            </li>
-          ))}
-          {items.length === 0 && (
-            <li className="py-3 text-sm text-gray-400">표시할 글이 없습니다.</li>
-          )}
-        </ul>
+              </li>
+            ))}
+          </ul>
+        )}
       </section>
+    </div>
+  );
+}
+
+// ── 접기/펼치기 캠프 대응 래퍼 ──────────────────────────────
+function CollapsibleResponse(props: Parameters<typeof ResponsePanel>[0]) {
+  const [open, setOpen] = useState(false);
+  const hasResp = !!props.resp;
+  return (
+    <div>
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className={`flex w-full items-center justify-between rounded-lg border px-4 py-3 text-sm font-semibold transition ${
+          hasResp
+            ? "border-brand/40 bg-orange-50 text-brand hover:bg-orange-100"
+            : "border-gray-200 bg-white text-gray-600 hover:bg-gray-50"
+        }`}
+      >
+        <span>
+          {hasResp ? "📋 캠프 대응 방안" : "📋 캠프 대응 작성"}
+          {hasResp && props.resp!.status === "published" && (
+            <span className="ml-2 rounded-full bg-green-100 px-2 py-0.5 text-xs text-green-700">발행됨</span>
+          )}
+        </span>
+        <span className="text-gray-400">{open ? "▲ 접기" : "▼ 펼치기"}</span>
+      </button>
+      {open && (
+        <div className="mt-2">
+          <ResponsePanel {...props} />
+        </div>
+      )}
     </div>
   );
 }

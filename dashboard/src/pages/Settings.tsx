@@ -175,18 +175,14 @@ export default function Settings() {
       {/* 수집 주기 */}
       <section className="rounded-lg border border-gray-200 bg-white p-5">
         <h2 className="font-semibold">수집 주기</h2>
-        <label className="mt-2 flex items-center gap-2 text-sm">
-          <input
-            type="number"
-            min={5}
-            value={everyMin}
-            onChange={(e) => setEveryMin(Number(e.target.value))}
-            className="w-24 rounded border border-gray-300 px-2 py-1.5 outline-none focus:border-brand"
-          />
-          분마다 수집
-        </label>
+        <div className="mt-2 flex items-center gap-2">
+          <span className="inline-flex items-center rounded-full bg-green-100 px-3 py-1 text-sm font-semibold text-green-700">
+            30분마다 수집
+          </span>
+          <span className="text-xs text-gray-400">매시 0분·30분 정각</span>
+        </div>
         <p className="mt-1 text-xs text-gray-400">
-          노트북 엔진(engine.main) 재시작 시 적용됩니다. 키워드/소스는 즉시(다음 주기) 반영.
+          Railway 클라우드 엔진에서 24시간 자동 실행됩니다.
         </p>
       </section>
 

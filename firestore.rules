@@ -33,10 +33,19 @@ service cloud.firestore {
       // 엔진이 쓰는 읽기전용 컬렉션 (Admin SDK 는 규칙 우회)
       match /items/{doc}        { allow read: if isMember(tid); allow write: if false; }
       match /alerts/{doc}       { allow read: if isMember(tid); allow write: if false; }
-      match /reports/{doc}      { allow read: if isMember(tid); allow write: if false; }
+      match /polls/{doc}        { allow read: if isMember(tid); allow write: if false; }
+      match /reports/{doc}      { allow read: if isMember(tid); allow delete: if isAdmin(tid); allow create, update: if false; }
       match /keywordTrend/{doc} { allow read: if isMember(tid); allow write: if false; }
       match /authors/{doc}      { allow read: if isMember(tid); allow write: if false; }
       match /rejected/{doc}     { allow read: if isMember(tid); allow write: if false; }
+
+      // 전략 분석 요청: 관리자만 생성, 엔진이 처리
+      match /strategyRequests/{rid} {
+        allow read: if isAdmin(tid);
+        allow create: if isAdmin(tid);
+        allow delete: if isAdmin(tid);
+        allow update: if false;
+      }
 
       match /clusters/{cid} {
         allow read: if isMember(tid);

@@ -12,12 +12,27 @@ import signal
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
+import sys
 from loguru import logger
+
+logger.remove()
+logger.add(sys.stderr, format="{time:YYYY-MM-DD HH:mm:ss} | {level} | {name}:{function}:{line} - {message}", colorize=False)
 
 from .config import get_settings
 from .pipeline import run_target
 from .report import generate_report
+from .report_generator import generate_report as generate_briefing
 from .store import FirestoreStore
+
+
+async def _morning_briefing(store: FirestoreStore) -> None:
+    for tid in store.list_target_ids():
+        try:
+            logger.info("[main] 오전 6시 브리핑 생성 시작: {}", tid)
+            await generate_briefing(tid)
+            logger.info("[main] 오전 6시 브리핑 완료: {}", tid)
+        except Exception as e:
+            logger.error("[main] 브리핑 실패: {}", e)
 
 
 async def _collect_all_targets(store: FirestoreStore) -> None:
@@ -59,19 +74,25 @@ async def main() -> None:
     scheduler = AsyncIOScheduler(timezone="Asia/Seoul")
     scheduler.add_job(
         _collect_all_targets,
-        IntervalTrigger(minutes=s.collect_interval_minutes),
+        CronTrigger(minute="0,30", timezone="Asia/Seoul"),
         args=[store],
         id="collect",
-        next_run_time=None,
     )
     scheduler.add_job(_daily_maintenance, CronTrigger(hour=0, minute=10), args=[store], id="daily")
-    scheduler.add_job(_daily_maintenance, CronTrigger(hour=8, minute=0), args=[store], id="report_am")
+    scheduler.add_job(_morning_briefing, CronTrigger(hour=6, minute=0, timezone="Asia/Seoul"), args=[store], id="briefing_am")
     scheduler.add_job(_daily_maintenance, CronTrigger(hour=18, minute=0), args=[store], id="report_pm")
     scheduler.add_job(
         _weekly_report, CronTrigger(day_of_week="mon", hour=10, minute=0), args=[store], id="weekly"
     )
     scheduler.start()
     logger.info("[main] 스케줄러 시작: {}분 주기 수집", s.collect_interval_minutes)
+
+    # 텔레그램 봇 백그라운드 스레드로 실행
+    import threading
+    from .telegram_bot import run_bot as _run_bot
+    bot_thread = threading.Thread(target=_run_bot, daemon=True, name="telebot")
+    bot_thread.start()
+    logger.info("[main] 텔레그램 봇 스레드 시작")
 
     # 시작 즉시 1회 수집
     await _collect_all_targets(store)

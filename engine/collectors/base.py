@@ -58,6 +58,7 @@ class RawItem:
     collected_at: datetime | None = None
     metrics: dict[str, int] = field(default_factory=dict)   # views, likes, comments
     keyword: str = ""           # 매칭된 검색 키워드
+    image_url: str = ""         # og:image 등 대표 이미지 URL
     raw: dict[str, Any] = field(default_factory=dict)       # 원본 응답 일부(디버깅)
 
     # ── 파이프라인이 채우는 주석 필드 (수집 시점엔 비어있음) ──

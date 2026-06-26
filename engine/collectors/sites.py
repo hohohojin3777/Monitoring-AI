@@ -85,6 +85,9 @@ _COMMUNITY = [
     SearchSite("ygosu", "와이고수", "ygosu",
                "https://www.ygosu.com/search/?type=community&keyword={q}",
                link_pattern=r"/community/", base_url="https://www.ygosu.com", verified=False),
+    SearchSite("ddanzi", "딴지일보", "ddanzi",
+               "https://www.ddanzi.com/search?keyword={q}",
+               link_pattern=r"/\w+/\d+", base_url="https://www.ddanzi.com", verified=False),
 ]
 
 # ── 검증 완료 포털 뉴스 ────────────────────────────────────────
@@ -106,12 +109,8 @@ _LOGIN = [
                source_type="community", requires_login=True,
                link_pattern=r"cafe\.naver\.com|/article", base_url="https://cafe.naver.com"),
     SearchSite("x", "X(트위터)", "x",
-               "https://x.com/search?q={q}&f=live", source_type="sns",
+               "https://x.com/search?q={q}+전당대회&f=live&src=typed_query", source_type="sns",
                requires_login=True, link_pattern=r"/status/\d+", base_url="https://x.com"),
-    SearchSite("instagram", "인스타그램", "instagram",
-               "https://www.instagram.com/explore/search/keyword/?q={q}",
-               source_type="sns", requires_login=True, link_pattern=r"/p/|/reel/",
-               base_url="https://www.instagram.com"),
     SearchSite("threads", "스레드", "threads",
                "https://www.threads.net/search?q={q}", source_type="sns",
                requires_login=True, link_pattern=r"/post/", base_url="https://www.threads.net"),

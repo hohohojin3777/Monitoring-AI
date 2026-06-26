@@ -30,3 +30,7 @@ Thumbs.db
 # ── 모델 캐시 ──
 .cache/
 models/
+
+# 브라우저 프로필
+.browser_profile/
+engine/.browser_profile/

@@ -9,6 +9,11 @@ export default {
         brand: { DEFAULT: "#f2710d", dark: "#d9620a" },
         grade: { red: "#e03131", orange: "#f08c00", yellow: "#f5c518" },
       },
+      borderColor: {
+        "grade-red": "#e03131",
+        "grade-orange": "#f08c00",
+        "grade-yellow": "#f5c518",
+      },
     },
   },
   plugins: [],

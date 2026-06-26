@@ -4,12 +4,27 @@
 """
 from __future__ import annotations
 
+import asyncio
+import re
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 
 import httpx
 from loguru import logger
 from tenacity import retry, stop_after_attempt, wait_exponential
+
+_OG_IMAGE_RE = re.compile(r'<meta[^>]+property=["\']og:image["\'][^>]+content=["\'](https?://[^"\']+)["\']', re.I)
+_OG_IMAGE_RE2 = re.compile(r'<meta[^>]+content=["\'](https?://[^"\']+)["\'][^>]+property=["\']og:image["\']', re.I)
+
+async def _fetch_og_image(client: httpx.AsyncClient, url: str) -> str:
+    try:
+        r = await client.get(url, timeout=5.0, follow_redirects=True,
+                             headers={"User-Agent": "Mozilla/5.0"})
+        html = r.text[:8000]
+        m = _OG_IMAGE_RE.search(html) or _OG_IMAGE_RE2.search(html)
+        return m.group(1) if m else ""
+    except Exception:
+        return ""
 
 from ..config import get_settings
 from .base import Collector, RawItem
@@ -102,5 +117,13 @@ class NaverCollector(Collector):
                                 raw={"link": it.get("link", "")},
                             )
                         )
+
+        # 뉴스 기사만 og:image 병렬 수집 (최대 50건 — 과도한 요청 방지)
+        news_items = [i for i in out if i.platform == "naver_news" and not i.image_url][:50]
+        if news_items:
+            imgs = await asyncio.gather(*[_fetch_og_image(client, i.url) for i in news_items])
+            for i, img in zip(news_items, imgs):
+                i.image_url = img
+
         logger.info("[naver] {}건 수집 (키워드 {}개)", len(out), len(keywords))
         return out[:limit] if limit else out

@@ -12,7 +12,7 @@ import {
   signOut,
   type User,
 } from "firebase/auth";
-import { doc, getDoc } from "firebase/firestore";
+import { doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore";
 import { auth, db, DEFAULT_TARGET } from "./firebase";
 import type { Role } from "./types";
 
@@ -22,7 +22,7 @@ interface AuthState {
   isMember: boolean;
   loading: boolean;
   login: (email: string, password: string) => Promise<void>;
-  signup: (email: string, password: string) => Promise<void>;
+  signup: (email: string, password: string, displayName?: string) => Promise<void>;
   logout: () => Promise<void>;
 }
 
@@ -59,8 +59,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     login: async (email, password) => {
       await signInWithEmailAndPassword(auth, email, password);
     },
-    signup: async (email, password) => {
-      await createUserWithEmailAndPassword(auth, email, password);
+    signup: async (email, password, displayName) => {
+      const cred = await createUserWithEmailAndPassword(auth, email, password);
+      await setDoc(doc(db, "targets", DEFAULT_TARGET, "memberRequests", cred.user.uid), {
+        email,
+        displayName: displayName ?? email,
+        requestedAt: serverTimestamp(),
+      });
     },
     logout: async () => {
       await signOut(auth);

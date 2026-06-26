@@ -3,32 +3,50 @@ import { useAuth } from "../auth";
 
 const NAV = [
   { to: "/", label: "이슈" },
+  { to: "/polls", label: "여론조사" },
   { to: "/alerts", label: "위기 알림" },
   { to: "/reports", label: "보고서" },
   { to: "/keywords", label: "키워드" },
+  { to: "/allies", label: "지지세력" },
   { to: "/authors", label: "작성자 영향력" },
   { to: "/rejected", label: "거부 검토" },
 ];
 
 export default function Layout({ children }: { children: React.ReactNode }) {
   const { user, role, logout } = useAuth();
-  const nav = role === "admin" ? [...NAV, { to: "/settings", label: "설정" }] : NAV;
+  const nav = role === "admin" ? [...NAV, { to: "/members", label: "멤버 관리" }, { to: "/settings", label: "설정" }] : NAV;
   return (
     <div className="min-h-full">
       <header className="bg-navy text-white">
-        <div className="mx-auto flex max-w-7xl flex-wrap items-center gap-x-6 gap-y-2 px-4 py-3">
-          <span className="text-lg font-bold">
-            <span className="text-brand">여론</span> 모니터링
-          </span>
-          <nav className="flex flex-1 flex-wrap items-center gap-1 text-sm">
+        <div className="mx-auto max-w-7xl px-4">
+          {/* 로고 + 사용자 — 한 줄 */}
+          <div className="flex items-center justify-between py-2.5">
+            <span className="text-base font-bold tracking-tight">
+              <span className="text-brand">H</span>O<span className="text-brand">rizon</span><span className="text-gray-300">0817</span>
+            </span>
+            <div className="flex items-center gap-2 text-xs text-gray-300">
+              {role === "admin" && (
+                <span className="rounded bg-brand/20 px-2 py-0.5 text-brand">관리자</span>
+              )}
+              <span className="hidden sm:inline max-w-[140px] truncate">{user?.email}</span>
+              <button
+                onClick={() => logout()}
+                className="rounded border border-white/30 px-2 py-1 hover:bg-white/10"
+              >
+                로그아웃
+              </button>
+            </div>
+          </div>
+          {/* 네비게이션 — 가로 스크롤 (모바일 메뉴 세로 쌓임 제거) */}
+          <nav className="flex gap-0.5 overflow-x-auto" style={{ scrollbarWidth: "none" }}>
             {nav.map((n) => (
               <NavLink
                 key={n.to}
                 to={n.to}
                 end={n.to === "/"}
                 className={({ isActive }) =>
-                  `rounded px-3 py-1.5 transition ${
-                    isActive ? "bg-brand text-white" : "text-gray-200 hover:bg-navy-light"
+                  `shrink-0 whitespace-nowrap rounded-t px-3 py-2 text-sm transition ${
+                    isActive ? "bg-brand text-white" : "text-gray-300 hover:bg-navy-light"
                   }`
                 }
               >
@@ -36,18 +54,6 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               </NavLink>
             ))}
           </nav>
-          <div className="flex items-center gap-3 text-xs text-gray-300">
-            {role === "admin" && (
-              <span className="rounded bg-brand/20 px-2 py-0.5 text-brand">관리자</span>
-            )}
-            <span className="hidden sm:inline">{user?.email}</span>
-            <button
-              onClick={() => logout()}
-              className="rounded border border-white/30 px-2 py-1 hover:bg-white/10"
-            >
-              로그아웃
-            </button>
-          </div>
         </div>
       </header>
       <main className="mx-auto max-w-7xl px-4 py-6">{children}</main>

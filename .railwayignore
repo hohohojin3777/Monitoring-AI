@@ -1,0 +1,11 @@
+engine/.venv-mac/
+engine/.browser_profile/
+.browser_profile/
+dashboard/node_modules/
+dashboard/dist/
+__pycache__/
+*.pyc
+*.pyo
+.DS_Store
+logs/
+*.log

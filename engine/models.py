@@ -20,6 +20,7 @@ class Target:
     channels: list[dict] = field(default_factory=list)
     sources: dict = field(default_factory=dict)   # {naver:bool, youtube:bool, rss:bool, ...}
     schedule: dict = field(default_factory=dict)
+    _raw: dict = field(default_factory=dict, repr=False)
 
     @classmethod
     def from_doc(cls, doc_id: str, data: dict) -> "Target":
@@ -39,6 +40,7 @@ class Target:
             channels=data.get("channels", []) or [],
             sources=data.get("sources", {}) or {},
             schedule=data.get("schedule", {}) or {},
+            _raw=data,
         )
 
     def search_keywords(self) -> list[str]:
@@ -66,3 +68,7 @@ class Target:
     def browser_site_keys(self) -> list[str]:
         """브라우저로 수집할 사이트 key 목록 (sources.sites). 'all' 가능."""
         return list(self.sources.get("sites", []) or [])
+
+    def watch_accounts(self) -> list[dict]:
+        """특정 계정 모니터링 목록 (watchAccounts) — 최상위 필드."""
+        return list(self._raw.get("watchAccounts", []) or [])
