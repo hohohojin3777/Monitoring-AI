@@ -13,7 +13,7 @@ from loguru import logger
 
 from .config import get_settings
 from .store import FirestoreStore
-from .collectors.poll_collector import _fetch_article, _gpt_parse_candidates, extract_poll_sections, FULL_RE
+from .collectors.poll_collector import _fetch_article, _gpt_parse_poll, extract_poll_sections, FULL_RE
 
 
 async def backfill():
@@ -53,20 +53,31 @@ async def backfill():
                 general = [{"name": m.group(1), "pct": float(m.group(2))}
                             for m in FULL_RE.finditer(snippet)]
 
-            # GPT 파싱 (본문 또는 스니펫 기반)
+            # GPT 파싱 (본문 또는 스니펫 기반) — 메타 포함
             if not general:
                 gpt_input = text or d.get("content") or d.get("snippet") or ""
-                general, party = await _gpt_parse_candidates(title, gpt_input)
+                meta = await _gpt_parse_poll(title, gpt_input)
+                general = meta.get("general", [])
+                party = meta.get("party", party)
+            else:
+                meta = {}
 
             if general:
-                tref.collection("polls").document(doc.id).update({
+                update_data = {
                     "candidatesGeneral": general,
                     "candidatesParty": party,
-                })
-                logger.info("✓ 백필 완료: {} → {}건 수치", title[:40], len(general))
+                    "hasData": len(general) >= 2,
+                }
+                # 메타 정보가 있으면 함께 저장
+                for field in ["pollster", "media", "pollPeriod", "sampleSize", "sampleGroup", "marginOfError", "surveyMethod"]:
+                    val = meta.get(field)
+                    if val:
+                        update_data[field] = val
+                tref.collection("polls").document(doc.id).update(update_data)
+                logger.info("✓ 백필 완료: {} → {}건 수치 | 기관: {}", title[:35], len(general), meta.get("pollster","미상"))
                 updated += 1
             else:
-                logger.warning("✗ 수치 추출 실패: {}", title[:40])
+                logger.warning("✗ 수치 없는 기사: {}", title[:40])
 
     logger.info("백필 완료: {}건 / {}건 업데이트", updated, len(no_data))
 

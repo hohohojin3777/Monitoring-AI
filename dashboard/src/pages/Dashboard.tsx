@@ -65,17 +65,17 @@ function GradeBadge({ grade }: { grade: string }) {
 // ── 섹션 헤더 ──────────────────────────────────────────────────
 function SectionHeader({ title, to, count }: { title: string; to: string; count?: number }) {
   return (
-    <div className="flex items-center justify-between mb-3">
-      <h2 className="text-sm font-bold text-navy flex items-center gap-2">
-        <span className="inline-block w-0.5 h-4 bg-brand rounded" />
+    <div className="flex items-center justify-between">
+      <h2 className="text-sm font-bold text-white flex items-center gap-2">
+        <span className="inline-block w-0.5 h-4 bg-blue-300 rounded" />
         {title}
         {count !== undefined && (
-          <span className="ml-1 rounded-full bg-gray-100 px-2 py-0.5 text-[10px] text-gray-500 font-normal">
+          <span className="ml-1 rounded-full bg-white/20 px-2 py-0.5 text-[10px] text-white/80 font-normal">
             {count}건
           </span>
         )}
       </h2>
-      <Link to={to} className="text-xs text-brand hover:underline">전체 보기 →</Link>
+      <Link to={to} className="text-xs text-blue-200 hover:text-white transition">전체 보기 →</Link>
     </div>
   );
 }
@@ -149,7 +149,7 @@ export default function Dashboard() {
           <div>
             <div className="flex items-center gap-3 flex-wrap">
               <span className="text-lg font-black tracking-tight">
-                <span className="text-brand">H</span>ORIZON<span className="text-gray-400 font-normal text-sm">0817</span>
+                <span className="text-blue-300">H</span>ORIZON<span className="text-gray-400 font-normal text-sm">0817</span>
               </span>
               <span className="rounded-lg bg-white/10 px-3 py-1 text-2xl font-black text-white">
                 D-{D}

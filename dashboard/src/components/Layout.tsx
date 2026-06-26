@@ -54,7 +54,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           <div className="flex items-center justify-between py-2.5">
             <div className="flex items-center gap-3">
               <span className="text-base font-black tracking-tight">
-                <span className="text-brand">H</span>
+                <span className="text-blue-300">H</span>
                 <span className="text-white">ORIZON</span>
                 <span className="text-gray-400 font-normal text-sm ml-0.5">0817</span>
               </span>

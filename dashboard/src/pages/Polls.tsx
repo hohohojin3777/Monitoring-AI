@@ -29,6 +29,13 @@ type Poll = {
   respondents?: string;
   imageUrl?: string;
   content?: string;
+  // 신규 메타 필드
+  pollster?: string;       // 조사기관
+  media?: string;          // 의뢰 매체
+  pollPeriod?: string;     // 조사기간
+  sampleSize?: number;     // 표본 수
+  marginOfError?: string;  // 오차범위
+  surveyMethod?: string;   // 조사방법
 };
 
 function dateOf(p: Poll): string {
@@ -320,7 +327,7 @@ export default function Polls() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="bg-navy text-white">
-                    {["날짜", "조사기관/매체", "조사대상", "김민석", "정청래", "송영길", "김용민", "1위", "원문"].map(
+                    {["조사기간", "조사기관", "의뢰 매체", "조사대상", "표본", "오차범위", "김민석", "정청래", "송영길", "김용민", "1위", "원문"].map(
                       (h) => (
                         <th
                           key={h}
@@ -344,16 +351,22 @@ export default function Polls() {
                     return (
                       <tr key={p.id} className="hover:bg-gray-50 transition">
                         <td className="px-3 py-2.5 text-xs text-gray-600 whitespace-nowrap font-mono">
-                          {dateOf(p) || "-"}
+                          {p.pollPeriod || dateOf(p) || "-"}
                         </td>
-                        <td className="px-3 py-2.5 text-xs text-gray-700 max-w-[160px]">
-                          <p className="truncate font-semibold">{p.org || p.client || "-"}</p>
-                          {p.name && p.name !== p.org && (
-                            <p className="truncate text-gray-400 text-[10px]">{p.name}</p>
-                          )}
+                        <td className="px-3 py-2.5 text-xs text-gray-700 whitespace-nowrap">
+                          <p className="font-semibold">{p.pollster || p.org || p.client || "-"}</p>
+                        </td>
+                        <td className="px-3 py-2.5 text-xs text-gray-500 whitespace-nowrap">
+                          {p.media || p.name || "-"}
                         </td>
                         <td className="px-3 py-2.5 text-xs text-gray-500 whitespace-nowrap">
                           {p.sampleGroup || p.respondents || "-"}
+                        </td>
+                        <td className="px-3 py-2.5 text-xs text-gray-400 whitespace-nowrap">
+                          {p.sampleSize ? `${p.sampleSize.toLocaleString()}명` : "-"}
+                        </td>
+                        <td className="px-3 py-2.5 text-xs text-gray-400 whitespace-nowrap">
+                          {p.marginOfError || "-"}
                         </td>
                         <td className={`px-3 py-2.5 text-sm font-black whitespace-nowrap ${
                           kim !== undefined ? "text-brand" : "text-gray-300"

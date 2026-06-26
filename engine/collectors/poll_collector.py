@@ -128,30 +128,41 @@ async def _fetch_article(client: httpx.AsyncClient, url: str) -> tuple[str, str]
         return "", ""
 
 
-async def _gpt_parse_candidates(title: str, text: str) -> tuple[list[dict], list[dict]]:
-    """GPT-4o-mini로 후보 지지율 수치 추출 (정규식 실패 폴백)."""
+async def _gpt_parse_poll(title: str, text: str) -> dict:
+    """GPT-4o-mini로 여론조사 전체 메타 + 후보 수치 추출."""
     try:
         openai_key = os.environ.get("OPENAI_API_KEY")
         if not openai_key:
-            return [], []
+            return {}
         from openai import AsyncOpenAI
         client = AsyncOpenAI(api_key=openai_key)
 
         snippet = (title + "\n\n" + text)[:3000]
         resp = await client.chat.completions.create(
             model="gpt-4o-mini",
-            max_tokens=400,
+            max_tokens=600,
             messages=[
                 {
                     "role": "system",
                     "content": (
-                        "다음 기사에서 더불어민주당 전당대회 당대표 후보 지지율/적합도 수치를 추출하라.\n"
+                        "다음 기사에서 더불어민주당 전당대회 당대표 여론조사 정보를 추출하라.\n"
                         "후보: 이재명, 정청래, 김민석, 송영길, 김용민, 김두관, 강훈식\n"
                         "결과는 반드시 JSON만 출력. 형식:\n"
-                        '{\"general\":[{\"name\":\"김민석\",\"pct\":27.4},...],\"party\":[...]}\n'
-                        "- general: 전체/일반 응답자 기준\n"
+                        "{\n"
+                        '  "pollster": "조사기관명 (예: 한국갤럽)",\n'
+                        '  "media": "의뢰 매체명 (예: KBS, 조선일보)",\n'
+                        '  "pollPeriod": "조사기간 (예: 2026-06-20~2026-06-22)",\n'
+                        '  "sampleSize": 1000,\n'
+                        '  "sampleGroup": "조사대상 (예: 전국 만18세 이상)",\n'
+                        '  "marginOfError": "오차범위 (예: ±3.1%p)",\n'
+                        '  "surveyMethod": "조사방법 (예: 전화면접, ARS)",\n'
+                        '  "general": [{"name": "김민석", "pct": 27.4}],\n'
+                        '  "party": [{"name": "김민석", "pct": 35.2}]\n'
+                        "}\n"
+                        "- general: 전체/일반 응답자 기준 지지율\n"
                         "- party: 민주당 지지층 기준 (없으면 빈 배열)\n"
-                        "수치가 없으면 {\"general\":[],\"party\":[]}"
+                        "- 없는 항목은 null 또는 빈값\n"
+                        "- 수치가 아예 없는 기사면 general/party는 빈 배열"
                     ),
                 },
                 {"role": "user", "content": snippet},
@@ -159,12 +170,25 @@ async def _gpt_parse_candidates(title: str, text: str) -> tuple[list[dict], list
             response_format={"type": "json_object"},
         )
         parsed = json.loads(resp.choices[0].message.content or "{}")
-        general = [c for c in parsed.get("general", []) if c.get("name") in CANDIDATES and isinstance(c.get("pct"), (int, float))]
-        party = [c for c in parsed.get("party", []) if c.get("name") in CANDIDATES and isinstance(c.get("pct"), (int, float))]
-        return general, party
+        # 후보 수치 검증
+        parsed["general"] = [
+            c for c in parsed.get("general", [])
+            if c.get("name") in CANDIDATES and isinstance(c.get("pct"), (int, float))
+        ]
+        parsed["party"] = [
+            c for c in parsed.get("party", [])
+            if c.get("name") in CANDIDATES and isinstance(c.get("pct"), (int, float))
+        ]
+        return parsed
     except Exception as e:
         logger.warning("[poll_gpt] 파싱 실패: {}", e)
-        return [], []
+        return {}
+
+
+async def _gpt_parse_candidates(title: str, text: str) -> tuple[list[dict], list[dict]]:
+    """하위 호환용 래퍼."""
+    result = await _gpt_parse_poll(title, text)
+    return result.get("general", []), result.get("party", [])
 
 
 async def collect_poll_news(since: datetime | None = None) -> list[dict]:
@@ -206,11 +230,14 @@ async def collect_poll_news(since: datetime | None = None) -> list[dict]:
                     snippet_cands = [{"name": m.group(1), "pct": float(m.group(2))}
                                      for m in FULL_RE.finditer(f"{it.title} {it.content}")]
                     general = snippet_cands
-                # 여전히 없으면 GPT-4o-mini 파싱
+                # 여전히 없으면 GPT-4o-mini 파싱 (메타 포함)
                 if not general:
-                    general, party = await _gpt_parse_candidates(it.title, text)
+                    gpt_result = await _gpt_parse_poll(it.title, text)
+                    general = gpt_result.get("general", [])
+                    party = gpt_result.get("party", party)
                     if general:
                         logger.info("[poll_gpt] GPT 파싱 성공: {} → {}건", it.title[:30], len(general))
+                    it.__dict__["_gpt_meta"] = gpt_result
                 it.__dict__["_general"] = general
                 it.__dict__["_party"] = party
             if image:
@@ -223,6 +250,7 @@ async def collect_poll_news(since: datetime | None = None) -> list[dict]:
             for m in FULL_RE.finditer(f"{it.title} {it.content}")
         ]
         party = it.__dict__.get("_party", [])
+        meta = it.__dict__.get("_gpt_meta", {})
         results.append({
             "title": it.title,
             "url": it.url,
@@ -231,7 +259,15 @@ async def collect_poll_news(since: datetime | None = None) -> list[dict]:
             "content": it.content[:300],
             "candidatesGeneral": general,
             "candidatesParty": party,
-            "hasData": len(general) >= 2,   # 수치 2건 이상이어야 의미 있는 조사
+            "hasData": len(general) >= 2,
+            # 조사 메타 정보
+            "pollster":     meta.get("pollster") or "",      # 조사기관
+            "media":        meta.get("media") or "",         # 의뢰 매체
+            "pollPeriod":   meta.get("pollPeriod") or "",    # 조사기간
+            "sampleSize":   meta.get("sampleSize") or None,  # 표본 수
+            "sampleGroup":  meta.get("sampleGroup") or "",   # 조사대상
+            "marginOfError":meta.get("marginOfError") or "", # 오차범위
+            "surveyMethod": meta.get("surveyMethod") or "",  # 조사방법
             "source": "news",
             "imageUrl": it.image_url or "",
         })
