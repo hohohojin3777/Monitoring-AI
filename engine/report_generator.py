@@ -147,7 +147,7 @@ def _build_data_prompt(data: dict, date_str: str, date_range: str, dday: int) ->
 async def _call_gpt(client, system: str, messages: list) -> str:
     resp = await client.chat.completions.create(
         model="gpt-5.5",
-        max_completion_tokens=6000,
+        max_completion_tokens=16000,
         messages=[{"role": "system", "content": system}] + messages,
     )
     return resp.choices[0].message.content
@@ -204,7 +204,7 @@ async def generate_report(target_id: str = "minju-jeondaehoe") -> str:
         ]
         resp2 = await client.chat.completions.create(
             model="gpt-5.5",
-            max_completion_tokens=800,
+            max_completion_tokens=4000,
             messages=[{"role": "system", "content": system_prompt}] + tg_messages,
         )
         telegram_text = resp2.choices[0].message.content
