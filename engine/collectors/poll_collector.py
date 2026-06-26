@@ -15,7 +15,7 @@ import httpx
 from bs4 import BeautifulSoup
 from loguru import logger
 
-CANDIDATES = ["이재명", "정청래", "김민석", "송영길", "김용민", "김두관", "강훈식", "우원식"]
+CANDIDATES = ["정청래", "김민석", "송영길", "김용민", "김두관", "강훈식", "우원식"]
 
 # 검색 키워드 — 제목에 (당대표|전당대회) AND (지지율|여론조사|적합도) 필터와 함께 사용
 POLL_KEYWORDS = [
@@ -235,9 +235,11 @@ async def collect_poll_news(since: datetime | None = None) -> list[dict]:
     raw = await collector.collect(POLL_KEYWORDS, since=since, limit=600)
 
     # 제목 필터
+    EXCLUDE_KW = ["대통령 지지율", "대통령 지지도", "국정지지율", "국정수행", "긍정평가", "부정평가", "이재명 지지율"]
     filtered = [
         it for it in raw
         if (any(k in it.title for k in TOPIC_KW) and any(k in it.title for k in POLL_KW))
+        and not any(k in it.title for k in EXCLUDE_KW)
         and it.platform in {"naver_news", "naver_blog", "google_news", "nate_news", "daum_news"}
     ]
 

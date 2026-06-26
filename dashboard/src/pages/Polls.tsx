@@ -2,11 +2,11 @@ import { useMemo, useRef, useState } from "react";
 import { usePolls } from "../lib/data";
 
 const CANDIDATES_ORDER = ["김민석", "정청래", "송영길", "김용민"];
-const CANDIDATES_ALL = ["이재명", "정청래", "김민석", "송영길", "김용민", "김두관", "강훈식"];
+const CANDIDATES_ALL = ["정청래", "김민석", "송영길", "김용민", "김두관", "강훈식", "우원식"];
 
 const COLORS: Record<string, string> = {
-  이재명: "#1971c2", 정청래: "#7950f2", 김민석: "#005BAC",
-  송영길: "#e6a817", 김용민: "#6D5DF6", 김두관: "#0c8599", 강훈식: "#d6336c",
+  정청래: "#7950f2", 김민석: "#005BAC",
+  송영길: "#e6a817", 김용민: "#6D5DF6", 김두관: "#0c8599", 강훈식: "#d6336c", 우원식: "#2f9e44",
 };
 const DEFAULT_COLOR = "#9ca3af";
 
