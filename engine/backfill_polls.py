@@ -43,12 +43,20 @@ async def backfill():
             if text:
                 general, party = extract_poll_sections(text)
                 if not general:
-                    snippet = f"{title} {d.get('content','')}"
                     general = [{"name": m.group(1), "pct": float(m.group(2))}
-                                for m in FULL_RE.finditer(snippet)]
+                                for m in FULL_RE.finditer(text)]
 
-            if not general and (text or title):
-                general, party = await _gpt_parse_candidates(title, text or title)
+            # Firestore에 저장된 스니펫도 시도
+            if not general:
+                stored_content = d.get("content") or d.get("snippet") or ""
+                snippet = f"{title} {stored_content}"
+                general = [{"name": m.group(1), "pct": float(m.group(2))}
+                            for m in FULL_RE.finditer(snippet)]
+
+            # GPT 파싱 (본문 또는 스니펫 기반)
+            if not general:
+                gpt_input = text or d.get("content") or d.get("snippet") or ""
+                general, party = await _gpt_parse_candidates(title, gpt_input)
 
             if general:
                 tref.collection("polls").document(doc.id).update({

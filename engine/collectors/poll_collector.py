@@ -231,8 +231,11 @@ async def collect_poll_news(since: datetime | None = None) -> list[dict]:
             "content": it.content[:300],
             "candidatesGeneral": general,
             "candidatesParty": party,
+            "hasData": len(general) >= 2,   # 수치 2건 이상이어야 의미 있는 조사
             "source": "news",
             "imageUrl": it.image_url or "",
         })
 
+    # 수치 없는 것도 저장하되 hasData=False 태그로 구분 (대시보드에서 필터 가능)
+    logger.info("[poll_news] 수치 있는 조사: {}건 / 전체: {}건", sum(1 for r in results if r["hasData"]), len(results))
     return results
