@@ -2,6 +2,7 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import { useAuth } from "./auth";
 import Layout from "./components/Layout";
 import Login from "./pages/Login";
+import Dashboard from "./pages/Dashboard";
 import Issues from "./pages/Issues";
 import ClusterDetail from "./pages/ClusterDetail";
 import Alerts from "./pages/Alerts";
@@ -16,7 +17,9 @@ import Allies from "./pages/Allies";
 
 function Splash({ text }: { text: string }) {
   return (
-    <div className="flex h-full items-center justify-center text-gray-500">{text}</div>
+    <div className="flex h-screen items-center justify-center text-gray-500 bg-[#F4F6F8]">
+      {text}
+    </div>
   );
 }
 
@@ -33,18 +36,19 @@ export default function App() {
   return (
     <Layout>
       <Routes>
-        <Route path="/" element={<Issues />} />
+        <Route path="/"           element={<Dashboard />} />
+        <Route path="/issues"     element={<Issues />} />
         <Route path="/clusters/:id" element={<ClusterDetail />} />
-        <Route path="/alerts" element={<Alerts />} />
-        <Route path="/reports" element={<Reports />} />
-        <Route path="/keywords" element={<Keywords />} />
-        <Route path="/authors" element={<Authors />} />
-        <Route path="/rejected" element={<Rejected />} />
-        <Route path="/polls" element={<Polls />} />
-        <Route path="/allies" element={<Allies />} />
-        <Route path="/members" element={<Members />} />
-        <Route path="/settings" element={<Settings />} />
-        <Route path="*" element={<Navigate to="/" replace />} />
+        <Route path="/alerts"     element={<Alerts />} />
+        <Route path="/reports"    element={<Reports />} />
+        <Route path="/keywords"   element={<Keywords />} />
+        <Route path="/authors"    element={<Authors />} />
+        <Route path="/rejected"   element={<Rejected />} />
+        <Route path="/polls"      element={<Polls />} />
+        <Route path="/allies"     element={<Allies />} />
+        <Route path="/members"    element={<Members />} />
+        <Route path="/settings"   element={<Settings />} />
+        <Route path="*"           element={<Navigate to="/" replace />} />
       </Routes>
     </Layout>
   );

@@ -170,7 +170,7 @@ export default function Reports() {
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: 'Noto Sans KR', 'Apple SD Gothic Neo', sans-serif; font-size: 11pt; color: #1a1a2e; line-height: 1.6; padding: 18mm 20mm; }
   h1 { font-size: 18pt; font-weight: 900; color: #1f3a5f; border-bottom: 2.5pt solid #1f3a5f; padding-bottom: 4pt; margin-bottom: 4pt; }
-  h2 { font-size: 12pt; font-weight: 700; color: #1f3a5f; margin-top: 14pt; margin-bottom: 6pt; border-left: 3pt solid #e87722; padding-left: 6pt; }
+  h2 { font-size: 12pt; font-weight: 700; color: #173B63; margin-top: 14pt; margin-bottom: 6pt; border-left: 3pt solid #005BAC; padding-left: 6pt; }
   p, div { font-size: 10.5pt; margin-bottom: 2pt; }
   strong { font-weight: 700; }
   table { width: 100%; border-collapse: collapse; font-size: 10pt; margin: 8pt 0; }
@@ -293,18 +293,67 @@ ${content}
           </aside>
 
           {/* 본문 */}
-          <div className="rounded-xl border border-gray-200 bg-white shadow-sm overflow-hidden">
-            <div className={`${TAB_META[tab].color} px-6 py-3 flex items-center justify-between`}>
-              <div>
-                <span className="text-xs opacity-70 font-medium tracking-wide uppercase">HOrizon0817</span>
-                <span className="mx-2 opacity-40">|</span>
-                <span className="text-sm font-semibold">{TAB_META[tab].label}</span>
+          <div className="space-y-3">
+            <div className="rounded-xl border border-gray-200 bg-white shadow-sm overflow-hidden">
+              <div className={`${TAB_META[tab].color} px-6 py-3 flex items-center justify-between`}>
+                <div>
+                  <span className="text-xs opacity-70 font-medium tracking-wide uppercase">HOrizon0817</span>
+                  <span className="mx-2 opacity-40">|</span>
+                  <span className="text-sm font-semibold">{TAB_META[tab].label}</span>
+                </div>
+                <span className="font-bold text-sm opacity-80">D-{dday()}</span>
               </div>
-              <span className="font-bold text-sm opacity-80">D-{dday()}</span>
+              <div ref={printRef} className="p-6">
+                {sel ? <ReportBody text={sel.bodyMarkdown} /> : null}
+              </div>
             </div>
-            <div ref={printRef} className="p-6">
-              {sel ? <ReportBody text={sel.bodyMarkdown} /> : null}
-            </div>
+
+            {/* 텔레그램 발송용 요약 */}
+            {sel && (sel as any).telegramText && (
+              <div className="rounded-xl border border-gray-200 bg-white shadow-sm overflow-hidden">
+                <div className="bg-gray-700 px-4 py-2.5 flex items-center justify-between">
+                  <span className="text-xs font-semibold text-white">Telegram 발송 요약문</span>
+                  <button
+                    onClick={() => navigator.clipboard.writeText((sel as any).telegramText)}
+                    className="text-[11px] text-gray-300 hover:text-white transition"
+                  >
+                    복사
+                  </button>
+                </div>
+                <div className="p-4 bg-gray-50">
+                  <pre className="text-xs text-gray-700 whitespace-pre-wrap font-sans leading-relaxed">
+                    {(sel as any).telegramText}
+                  </pre>
+                </div>
+              </div>
+            )}
+
+            {/* 발송 상태 */}
+            {sel && (
+              <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+                <h3 className="text-xs font-semibold text-gray-500 mb-2">발송 상태</h3>
+                <div className="flex gap-3 flex-wrap text-xs">
+                  <span className="flex items-center gap-1">
+                    <span className="w-2 h-2 rounded-full bg-green-accent" />
+                    <span className="text-gray-700">Firestore 저장 완료</span>
+                  </span>
+                  <span className="flex items-center gap-1">
+                    <span className={(sel as any).telegramText ? "w-2 h-2 rounded-full bg-green-accent" : "w-2 h-2 rounded-full bg-gray-300"} />
+                    <span className="text-gray-700">Telegram {(sel as any).telegramText ? "발송됨" : "미발송"}</span>
+                  </span>
+                  <span className="flex items-center gap-1">
+                    <span className={(sel as any).bodyMarkdown ? "w-2 h-2 rounded-full bg-green-accent" : "w-2 h-2 rounded-full bg-gray-300"} />
+                    <span className="text-gray-700">PDF {(sel as any).bodyMarkdown ? "생성 가능" : "없음"}</span>
+                  </span>
+                  {(sel as any).model && (
+                    <span className="text-gray-400">모델: {(sel as any).model}</span>
+                  )}
+                  {(sel as any).sourceIssueCount !== undefined && (
+                    <span className="text-gray-400">사용 이슈: {(sel as any).sourceIssueCount}건</span>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

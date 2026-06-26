@@ -2,10 +2,10 @@ import type { Timestamp } from "firebase/firestore";
 import type { Grade } from "../types";
 
 export const GRADE_META: Record<Grade, { label: string; dot: string; chip: string }> = {
-  red: { label: "위기", dot: "bg-grade-red", chip: "bg-red-100 text-red-700" },
-  orange: { label: "경고", dot: "bg-grade-orange", chip: "bg-orange-100 text-orange-700" },
-  yellow: { label: "주의", dot: "bg-grade-yellow", chip: "bg-yellow-100 text-yellow-800" },
-  none: { label: "일반", dot: "bg-gray-300", chip: "bg-gray-100 text-gray-600" },
+  red:    { label: "위기", dot: "bg-grade-red",    chip: "bg-danger-red/10 text-danger-red border border-danger-red/30" },
+  orange: { label: "주의", dot: "bg-grade-orange", chip: "bg-warning-orange/10 text-warning-orange border border-warning-orange/30" },
+  yellow: { label: "관찰", dot: "bg-grade-yellow", chip: "bg-yellow-50 text-yellow-700 border border-yellow-300" },
+  none:   { label: "일반", dot: "bg-gray-300",     chip: "bg-gray-100 text-gray-500 border border-gray-200" },
 };
 
 const PLATFORM_LABEL: Record<string, string> = {
