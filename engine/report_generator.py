@@ -8,6 +8,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import os
 from datetime import datetime, timedelta, timezone
 
 from loguru import logger
@@ -145,11 +146,17 @@ async def generate_report(target_id: str = "minju-jeondaehoe") -> str:
 
     logger.info("Claude 분석 중... (클러스터 {}건, 여론조사 {}건)", len(data["clusters"]), len(data["polls"]))
 
-    if not s.anthropic_api_key:
-        raise RuntimeError("ANTHROPIC_API_KEY 없음 — .env에 설정 필요")
-
-    from anthropic import AsyncAnthropic
-    client = AsyncAnthropic(api_key=s.anthropic_api_key)
+    from openai import AsyncOpenAI
+    openai_key = os.environ.get("OPENAI_API_KEY") or getattr(s, "openai_api_key", None)
+    if openai_key:
+        _use_gpt = True
+        client = AsyncOpenAI(api_key=openai_key)
+    elif s.anthropic_api_key:
+        _use_gpt = False
+        from anthropic import AsyncAnthropic
+        client = AsyncAnthropic(api_key=s.anthropic_api_key)
+    else:
+        raise RuntimeError("OPENAI_API_KEY 또는 ANTHROPIC_API_KEY 없음")
 
     prompt = f"""다음 데이터를 바탕으로 전당대회 동향 브리핑을 작성하십시오.
 반드시 아래 제공된 실제 데이터에 있는 내용만 분석하십시오. 데이터에 없는 사실은 절대 작성하지 마십시오.
@@ -254,13 +261,26 @@ async def generate_report(target_id: str = "minju-jeondaehoe") -> str:
 *출처: HOrizon0817 여론모니터링 시스템 (자동수집 {date_str})*
 """
 
-    resp = await client.messages.create(
-        model="claude-sonnet-4-6",
-        max_tokens=8000,
-        system=_SYSTEM,
-        messages=[{"role": "user", "content": prompt}],
-    )
-    body = "".join(b.text for b in resp.content if getattr(b, "type", "") == "text")
+    if _use_gpt:
+        resp = await client.chat.completions.create(
+            model="gpt-4o",
+            max_tokens=8000,
+            messages=[
+                {"role": "system", "content": _SYSTEM},
+                {"role": "user", "content": prompt},
+            ],
+        )
+        body = resp.choices[0].message.content
+        logger.info("[report_generator] GPT-4o로 브리핑 생성")
+    else:
+        resp = await client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=8000,
+            system=_SYSTEM,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        body = "".join(b.text for b in resp.content if getattr(b, "type", "") == "text")
+        logger.info("[report_generator] Claude로 브리핑 생성")
 
     # Firestore에 저장
     report_doc = {
