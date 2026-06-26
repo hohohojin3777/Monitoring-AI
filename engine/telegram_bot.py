@@ -129,7 +129,7 @@ def markdown_to_pdf(markdown_text: str, title: str = "전당대회 동향 브리
 <title>{title} D-{dday}</title>
 <style>
 * {{ box-sizing:border-box; margin:0; padding:0; }}
-body {{ font-family:'Apple SD Gothic Neo','Malgun Gothic','NanumGothic',sans-serif;
+body {{ font-family:'NanumBarunGothic','NanumGothic','나눔바른고딕','Apple SD Gothic Neo','Malgun Gothic',sans-serif;
        font-size:10.5pt; color:#1a1a2e; line-height:1.65; padding:14mm 18mm; }}
 h1 {{ font-size:16pt; font-weight:900; color:#1f3a5f;
      border-bottom:2.5pt solid #1f3a5f; padding-bottom:5pt; margin-bottom:5pt; margin-top:6pt; }}
