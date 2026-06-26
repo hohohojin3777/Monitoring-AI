@@ -325,6 +325,7 @@ def _cluster_doc(c: Cluster) -> dict:
         "summary": c.summary,
         "firstSeen": c.first_seen,
         "lastSeen": c.last_seen,
+        "updatedAt": datetime.now(timezone.utc),
         "status": c.status,
         "grade": c.grade,
         "patterns": c.patterns,

@@ -82,7 +82,7 @@ def assign_clusters(
             c = clusters[best_i]
             c.item_ids.append(item.item_id)
             c.new_item_ids.append(item.item_id)
-            c.last_seen = max(c.last_seen, item.published_at or now)
+            c.last_seen = now  # 수집 시각 기준 — 대시보드 최신순 정렬용
             c.touched = True
             # 종료된 클러스터에 새 글 유입 → 재발
             if c.status in ("resolved", "archived"):
