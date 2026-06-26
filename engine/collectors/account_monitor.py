@@ -35,7 +35,7 @@ _POST_PATTERNS: dict[str, str] = {
     "x":         r"/status/\d+",
     "instagram": r"/p/|/reel/",
     "threads":   r"/post/",
-    "facebook":  r"/posts/|/permalink/|story_fbid|/videos/",
+    "facebook":  r"/posts/|/permalink/|story_fbid|/videos/|pfbid|photo",
 }
 
 
@@ -79,8 +79,17 @@ async def collect_watch_accounts(
 
             try:
                 logger.info("[account_monitor] {} @{} 수집 중…", platform, label)
-                await page.goto(profile_url, wait_until="domcontentloaded", timeout=30000)
-                await page.wait_for_timeout(3000)
+                # Facebook은 /posts 탭 직접 열기
+                if platform == "facebook":
+                    posts_url = profile_url.rstrip("/") + "?sk=timeline"
+                    await page.goto(posts_url, wait_until="domcontentloaded", timeout=30000)
+                else:
+                    await page.goto(profile_url, wait_until="domcontentloaded", timeout=30000)
+                await page.wait_for_timeout(4000)
+
+                # 스크롤 다운으로 더 많은 콘텐츠 로드
+                await page.evaluate("window.scrollTo(0, document.body.scrollHeight * 0.5)")
+                await page.wait_for_timeout(2000)
 
                 # 글 링크 추출
                 post_pattern = re.compile(_POST_PATTERNS[platform])

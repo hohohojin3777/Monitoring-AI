@@ -67,10 +67,10 @@ async def _collect_watch_accounts(target: Target, s) -> list[RawItem]:
     try:
         return await asyncio.wait_for(
             collect_watch_accounts(accounts, profile_dir, limit_per_account=20),
-            timeout=180,
+            timeout=480,
         )
     except asyncio.TimeoutError:
-        logger.warning("[pipeline] watchAccounts 타임아웃(3분) — 건너뜀")
+        logger.warning("[pipeline] watchAccounts 타임아웃(8분) — 건너뜀")
         return []
 
 
