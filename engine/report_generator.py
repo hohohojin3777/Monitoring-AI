@@ -252,7 +252,7 @@ async def generate_report(target_id: str = "minju-jeondaehoe") -> str:
     # 텔레그램 발송
     try:
         from .telegram_bot import send_message as tg_send
-        await asyncio.get_event_loop().run_in_executor(None, tg_send, telegram_text)
+        await tg_send(telegram_text)
         logger.info("[report_generator] 텔레그램 발송 완료")
     except Exception as e:
         logger.warning("[report_generator] 텔레그램 발송 실패: {}", e)

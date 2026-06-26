@@ -487,5 +487,17 @@ def run_bot():
         app.run_polling(drop_pending_updates=True, stop_signals=None)
 
 
+async def send_message(text: str) -> None:
+    """텔레그램 채팅방에 텍스트 메시지 발송."""
+    s = get_settings()
+    if not s.telegram_bot_token or not s.telegram_chat_id:
+        logger.warning("[telegram] 봇 토큰 또는 채팅 ID 없음 — 발송 생략")
+        return
+    from telegram import Bot
+    bot = Bot(token=s.telegram_bot_token)
+    await bot.send_message(chat_id=s.telegram_chat_id, text=text[:4096])
+    logger.info("[telegram] 메시지 발송 완료")
+
+
 if __name__ == "__main__":
     run_bot()
