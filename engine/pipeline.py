@@ -37,8 +37,8 @@ def _build_collectors(target: Target):
     collectors = []
     if target.source_enabled("naver"):
         collectors.append(NaverCollector())
-    if target.source_enabled("youtube"):
-        collectors.append(YouTubeCollector())
+    # YouTube keyword search 비활성화 — 채널 직접 수집(playlistItems)만 사용
+    # (keyword search = 100 unit/call → 할당량 소진. 채널수집 = 1 unit/call)
     if target.source_enabled("rss"):
         collectors.append(RSSCollector())
     # 브라우저 직접 수집 — Railway 환경에서는 Playwright 커뮤니티 수집 비활성화
