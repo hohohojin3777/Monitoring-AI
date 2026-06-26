@@ -74,6 +74,12 @@ async def _collect_watch_accounts(target: Target, s) -> list[RawItem]:
         return []
 
 
+# YouTube API는 하루 10,000 unit 제한 — 핵심 키워드만 사용 (100 unit/검색)
+_YT_KEYWORDS = [
+    "민주당 전당대회", "김민석 당대표", "정청래 당대표", "송영길 당대표", "8.17 전당대회",
+]
+
+
 async def _collect_all(target: Target, collectors=None) -> list[RawItem]:
     keywords = target.search_keywords()
     if not keywords:
@@ -83,7 +89,13 @@ async def _collect_all(target: Target, collectors=None) -> list[RawItem]:
     if collectors is None:
         collectors = _build_collectors(target)
     logger.info("[pipeline] 수집기 {}개 가동", len(collectors))
-    tasks = [asyncio.create_task(c.collect(keywords, since=since)) for c in collectors]
+    # YouTube는 API 할당량 절약을 위해 핵심 키워드만 전달
+    tasks = [
+        asyncio.create_task(
+            c.collect(_YT_KEYWORDS if c.name == "youtube" else keywords, since=since)
+        )
+        for c in collectors
+    ]
     done, pending = await asyncio.wait(tasks, timeout=300)
     for t in pending:
         t.cancel()
@@ -101,8 +113,9 @@ async def _collect_all(target: Target, collectors=None) -> list[RawItem]:
         else:
             items.extend(r)
 
-    # 후보 공식 채널 수집
-    if target.source_enabled("youtube"):
+    # 후보 공식 채널 수집 — 6시간마다만 (API 할당량 절약)
+    now_hour = datetime.now(timezone.utc).hour
+    if target.source_enabled("youtube") and now_hour % 6 == 0:
         try:
             from .collectors.youtube import YouTubeCollector, CANDIDATE_CHANNELS
             yt = YouTubeCollector()
