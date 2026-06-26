@@ -263,7 +263,7 @@ async def generate_report(target_id: str = "minju-jeondaehoe") -> str:
 
     if _use_gpt:
         resp = await client.chat.completions.create(
-            model="gpt-4o",
+            model="gpt-4.5",
             max_tokens=8000,
             messages=[
                 {"role": "system", "content": _SYSTEM},
