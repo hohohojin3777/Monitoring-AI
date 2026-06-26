@@ -29,7 +29,11 @@ SAJASUNG = [
 
 
 def _dday() -> int:
-    return (JEONDAE_DATE - datetime.now(timezone.utc)).days
+    from datetime import date as _date
+    kst = timezone(timedelta(hours=9))
+    today = datetime.now(kst).date()
+    target = _date(2026, 8, 17)
+    return (target - today).days
 
 
 def _sajasung() -> str:
@@ -213,15 +217,16 @@ async def generate_report(target_id: str = "minju-jeondaehoe") -> str:
         logger.warning("[report_generator] 텔레그램 요약 실패: {}", e)
         telegram_text = body[:500] + "\n\n[전체 브리핑은 대시보드 확인]"
 
-    # Firestore reports 저장
+    # Firestore 저장 — targets/{id}/reports 하위 (PDF 발송과 통일)
     report_doc = {
         "date": today.strftime("%Y-%m-%d"),
-        "type": "morning",
-        "createdAt": datetime.now(timezone.utc),
+        "type": "daily",
+        "generatedAt": datetime.now(timezone.utc),
         "status": "draft",
         "sourceIssueCount": len(data["clusters"]),
         "title": f"HORIZON0817 전당대회 동향 브리핑 {date_str}",
         "summary": body[:200] if body else "",
+        "bodyMarkdown": body,   # PDF 발송용 (telegram_bot 호환)
         "reportText": body,
         "telegramText": telegram_text,
         "factCheckItems": [],
@@ -233,26 +238,28 @@ async def generate_report(target_id: str = "minju-jeondaehoe") -> str:
 
     try:
         db = store.connect()
-        # 같은 날짜·타입 중복 방지
+        tref = db.collection("targets").document(target_id)
+        # 같은 날짜 중복 방지
         existing = (
-            db.collection("reports")
+            tref.collection("reports")
             .where("date", "==", report_doc["date"])
-            .where("type", "==", "morning")
+            .where("type", "==", "daily")
             .limit(1)
             .stream()
         )
         if any(True for _ in existing):
-            logger.warning("[report_generator] 오늘 morning 브리핑 이미 존재 — 덮어쓰지 않음")
+            logger.warning("[report_generator] 오늘 브리핑 이미 존재 — 덮어쓰지 않음")
         else:
-            db.collection("reports").add(report_doc)
-            logger.info("[report_generator] Firestore reports 저장 완료")
+            tref.collection("reports").add(report_doc)
+            logger.info("[report_generator] Firestore targets/reports 저장 완료")
     except Exception as e:
         logger.warning("[report_generator] Firestore 저장 실패: {}", e)
 
-    # 텔레그램 발송
+    # 텔레그램 발송 — 텍스트 요약 후 PDF
     try:
-        from .telegram_bot import send_message as tg_send
+        from .telegram_bot import send_message as tg_send, push_report_pdf
         await tg_send(telegram_text)
+        await push_report_pdf(target_id)
         logger.info("[report_generator] 텔레그램 발송 완료")
     except Exception as e:
         logger.warning("[report_generator] 텔레그램 발송 실패: {}", e)

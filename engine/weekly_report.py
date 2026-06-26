@@ -8,6 +8,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import os
 from datetime import datetime, timedelta, timezone
 
 from loguru import logger
@@ -91,11 +92,12 @@ async def generate_weekly_report(target_id: str = "minju-jeondaehoe") -> str:
         "Mon","월").replace("Tue","화").replace("Wed","수").replace(
         "Thu","목").replace("Fri","금").replace("Sat","토").replace("Sun","일")
 
-    if not s.anthropic_api_key:
-        raise RuntimeError("ANTHROPIC_API_KEY 없음")
+    openai_key = os.environ.get("OPENAI_API_KEY") or getattr(s, "openai_api_key", None)
+    if not openai_key:
+        raise RuntimeError("OPENAI_API_KEY 없음")
 
-    from anthropic import AsyncAnthropic
-    client = AsyncAnthropic(api_key=s.anthropic_api_key)
+    from openai import AsyncOpenAI
+    client = AsyncOpenAI(api_key=openai_key)
 
     prompt = f"""다음 한 주간 데이터를 바탕으로 주간 종합 보고서를 작성하십시오.
 
@@ -165,13 +167,15 @@ async def generate_weekly_report(target_id: str = "minju-jeondaehoe") -> str:
 *출처: HOrizon0817 주간 종합 보고서 (자동수집 {date_str})*
 """
 
-    resp = await client.messages.create(
-        model="claude-sonnet-4-6",
-        max_tokens=6000,
-        system=_SYSTEM,
-        messages=[{"role": "user", "content": prompt}],
+    resp = await client.chat.completions.create(
+        model="gpt-5.5",
+        max_completion_tokens=16000,
+        messages=[
+            {"role": "system", "content": _SYSTEM},
+            {"role": "user", "content": prompt},
+        ],
     )
-    body = "".join(b.text for b in resp.content if getattr(b, "type", "") == "text")
+    body = resp.choices[0].message.content or ""
 
     report_doc = {
         "type": "weekly",

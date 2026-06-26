@@ -82,7 +82,7 @@ async def main() -> None:
     scheduler.add_job(_morning_briefing, CronTrigger(hour=6, minute=0, timezone="Asia/Seoul"), args=[store], id="briefing_am")
     scheduler.add_job(_daily_maintenance, CronTrigger(hour=18, minute=0), args=[store], id="report_pm")
     scheduler.add_job(
-        _weekly_report, CronTrigger(day_of_week="mon", hour=10, minute=0), args=[store], id="weekly"
+        _weekly_report, CronTrigger(day_of_week="sat", hour=18, minute=0, timezone="Asia/Seoul"), args=[store], id="weekly"
     )
     scheduler.start()
     logger.info("[main] 스케줄러 시작: {}분 주기 수집", s.collect_interval_minutes)
