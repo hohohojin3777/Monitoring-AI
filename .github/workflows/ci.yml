@@ -19,34 +19,24 @@ jobs:
           python-version: "3.11"
           cache: pip
       - run: pip install -r requirements.txt
-      - name: diagnose imports
+
+      - name: run all tests with full output
         working-directory: ..
-        continue-on-error: true
         run: |
-          python -c "
-          import traceback, sys
-          mods = [
-            'engine.analysis.cluster',
-            'engine.analysis.embed',
-            'engine.analysis.filters',
-            'engine.analysis.grade',
-            'engine.collectors.base',
-            'engine.config',
-            'engine.pipeline',
-            'engine.store.firestore',
-          ]
-          for m in mods:
-            try:
-              __import__(m)
-              print('OK', m)
-            except Exception as e:
-              print('FAIL', m, ':', e)
-              traceback.print_exc()
-          " 2>&1
-      - run: python -m engine.tests.test_core 2>&1
-        working-directory: ..
-      - run: python -m engine.tests.test_pipeline_sim 2>&1
-        working-directory: ..
+          set +e
+          echo "=== test_core ==="
+          python -m engine.tests.test_core 2>&1
+          TEST_CORE_EXIT=$?
+          echo "test_core exit: $TEST_CORE_EXIT"
+
+          echo "=== test_pipeline_sim ==="
+          python -m engine.tests.test_pipeline_sim 2>&1
+          TEST_SIM_EXIT=$?
+          echo "test_pipeline_sim exit: $TEST_SIM_EXIT"
+
+          if [ $TEST_CORE_EXIT -ne 0 ] || [ $TEST_SIM_EXIT -ne 0 ]; then
+            exit 1
+          fi
 
   dashboard-build:
     runs-on: ubuntu-latest
