@@ -44,6 +44,7 @@ class Cluster:
     rep_text: str                          # 재임베딩용 대표 텍스트(시드 글)
     first_seen: datetime
     last_seen: datetime
+    latest_published_at: datetime | None = None  # 클러스터 내 가장 최신 실제 발행 시간
     status: str = "active"                  # active | resolved | archived
     item_ids: list[str] = field(default_factory=list)
     grade: str = "none"
@@ -100,7 +101,10 @@ def assign_clusters(
             c = clusters[best_i]
             c.item_ids.append(item.item_id)
             c.new_item_ids.append(item.item_id)
-            c.last_seen = now  # 수집 시각 기준 — 대시보드 최신순 정렬용
+            c.last_seen = now
+            if item.published_at:
+                if c.latest_published_at is None or item.published_at > c.latest_published_at:
+                    c.latest_published_at = item.published_at
             c.touched = True
             # 종료된 클러스터에 새 글 유입 → 재발
             if c.status in ("resolved", "archived"):
@@ -117,7 +121,8 @@ def assign_clusters(
                 title=_cluster_title(item),
                 rep_text=item.text,
                 first_seen=published,
-                last_seen=published,
+                last_seen=now,
+                latest_published_at=item.published_at,
                 item_ids=[item.item_id],
                 new_item_ids=[item.item_id],
                 touched=True,

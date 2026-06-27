@@ -33,6 +33,7 @@ export interface Cluster {
   itemCount: number;
   firstSeen?: Timestamp;
   lastSeen?: Timestamp;
+  latestPublishedAt?: Timestamp;
   stats?: ClusterStats;
 }
 

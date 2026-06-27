@@ -125,7 +125,12 @@ function ClusterRow({ c }: { c: Cluster }) {
           <h3 className="line-clamp-1 font-bold text-gray-900 md:text-base">
             {c.title || "(제목 없음)"}
           </h3>
-          <span className="hidden shrink-0 text-xs text-gray-400 md:block">{fmtDate(c.lastSeen)}</span>
+          <div className="hidden shrink-0 flex-col items-end gap-0.5 md:flex">
+            {c.latestPublishedAt && (
+              <span className="text-[10px] text-gray-400">발행 {fmtDate(c.latestPublishedAt)}</span>
+            )}
+            <span className="text-xs text-gray-400">수집 {fmtDate(c.lastSeen)}</span>
+          </div>
         </div>
         {c.summary && c.summary !== c.title && (
           <p className="mt-0.5 line-clamp-2 text-sm leading-relaxed text-gray-500">{c.summary}</p>
@@ -155,7 +160,8 @@ function ClusterRow({ c }: { c: Cluster }) {
 
 // ── 메인 페이지 ───────────────────────────────────────────
 export default function Issues() {
-  const { data, loading } = useClusters();
+  const [sortBy, setSortBy] = useState<"lastSeen" | "latestPublishedAt">("lastSeen");
+  const { data, loading } = useClusters(sortBy);
   const [filterTab, setFilterTab] = useState<FilterTag>("전체");
   const [sourceTab, setSourceTab] = useState<SourceTab>("뉴스");
 
@@ -176,9 +182,21 @@ export default function Issues() {
 
   return (
     <div>
-      <div className="mb-4">
-        <h1 className="text-xl font-bold text-gray-900">이슈 클러스터</h1>
-        <p className="mt-0.5 text-sm text-gray-500">같은 사건을 여러 매체에서 자동으로 묶어 표시합니다.</p>
+      <div className="mb-4 flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-xl font-bold text-gray-900">이슈 클러스터</h1>
+          <p className="mt-0.5 text-sm text-gray-500">같은 사건을 여러 매체에서 자동으로 묶어 표시합니다.</p>
+        </div>
+        <div className="flex shrink-0 items-center gap-1 rounded-lg border border-gray-200 bg-white p-1">
+          <button onClick={() => setSortBy("lastSeen")}
+            className={`rounded px-3 py-1 text-xs font-semibold transition ${sortBy === "lastSeen" ? "bg-navy text-white" : "text-gray-500 hover:bg-gray-100"}`}>
+            수집시간순
+          </button>
+          <button onClick={() => setSortBy("latestPublishedAt")}
+            className={`rounded px-3 py-1 text-xs font-semibold transition ${sortBy === "latestPublishedAt" ? "bg-navy text-white" : "text-gray-500 hover:bg-gray-100"}`}>
+            발행시간순
+          </button>
+        </div>
       </div>
 
       {/* 위기 필터 — 가로 스크롤 지원 */}

@@ -52,8 +52,8 @@ function useCollection<T>(
 }
 
 // ── 조회 훅 ──────────────────────────────────────────────────
-export function useClusters() {
-  return useCollection<Cluster>(["clusters"], [orderBy("lastSeen", "desc"), fbLimit(1000)]);
+export function useClusters(sortBy: "lastSeen" | "latestPublishedAt" = "lastSeen") {
+  return useCollection<Cluster>(["clusters"], [orderBy(sortBy, "desc"), fbLimit(1000)]);
 }
 
 export function useCluster(id: string) {
