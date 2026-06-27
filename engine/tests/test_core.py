@@ -15,10 +15,12 @@ from ..config import get_settings
 
 
 def _item(platform, title, content="", sentiment="neutral", url=None, published=None):
+    import hashlib as _hl
+    stable_id = _hl.md5(title.encode()).hexdigest()[:8]
     it = RawItem(
         platform=platform,
         source_type="news",
-        url=url or f"https://{platform}.example/{abs(hash(title)) % 99999}",
+        url=url or f"https://{platform}.example/{stable_id}",
         title=title,
         content=content,
         published_at=published or datetime.now(timezone.utc),
