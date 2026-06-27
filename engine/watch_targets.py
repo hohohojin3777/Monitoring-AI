@@ -300,13 +300,13 @@ WATCH_TARGETS: list[dict] = [
         "enabled": True,
     },
 
-    # 송영길 캠프
+    # 대권·차기주자 모니터링 (전당대회 후보군 아님)
     {
         "name": "우원식",
         "category": "lawmaker",
         "tier": "A",
-        "relationCandidate": "송영길",
-        "relationStatus": "확정 지지",
+        "relationCandidate": None,
+        "relationStatus": "대권 모니터링",
         "mustMonitor": False,
         "crawlIntervalMinutes": 120,
         "platforms": {
