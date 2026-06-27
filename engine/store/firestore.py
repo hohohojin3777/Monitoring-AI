@@ -145,11 +145,12 @@ class FirestoreStore:
         self._target_ref(target_id).collection("alerts").add(alert)
 
     def save_polls(self, target_id: str, polls: list[dict]) -> None:
-        """여론조사 결과 저장 — dedupeKey 기반 병합.
+        """poll master 저장 — dedupeKey 기반 upsert.
 
-        같은 dedupeKey(pollster+pollPeriod+sampleGroup)의 기사는 하나의 문서로 병합하고
-        sourceArticles 배열에 원문 기사를 누적한다.
-        수동 입력(manualVerified=true) 문서는 자동 추출로 덮어쓰지 않는다.
+        - 같은 dedupeKey = 같은 여론조사 → sourceArticles 배열 누적
+        - manualVerified=true 문서는 핵심 수치 덮어쓰기 금지
+        - candidatesGeneral: 더 많은 쪽으로 보완
+        - 수치 충돌 시 needsReview=true
         """
         import hashlib
         from google.cloud.firestore_v1 import ArrayUnion
@@ -161,35 +162,49 @@ class FirestoreStore:
         now = datetime.now(timezone.utc)
 
         for p in polls:
-            # dedupeKey 기반 doc_id (없으면 url fallback)
             dedup_key = p.get("dedupeKey")
             if not dedup_key:
-                key = p.get("regNo") or p.get("url") or str(p.get("title", ""))
+                key = p.get("url") or str(p.get("pollster", "")) + str(p.get("pollStartDate", ""))
                 dedup_key = hashlib.sha256(key.encode()).hexdigest()[:16]
 
             doc_ref = coll.document(dedup_key)
+            existing_snap = doc_ref.get()
 
-            # 수동 검증된 문서는 핵심 수치 덮어쓰기 금지
-            existing = doc_ref.get()
-            if existing.exists and existing.to_dict().get("manualVerified"):
-                # sourceArticle만 추가
-                if p.get("sourceArticle"):
-                    doc_ref.set({"sourceArticles": ArrayUnion([p["sourceArticle"]]), "updatedAt": now}, merge=True)
+            # 수동 검증 보호
+            if existing_snap.exists and existing_snap.to_dict().get("manualVerified"):
+                arts = p.get("sourceArticles") or ([p["sourceArticle"]] if p.get("sourceArticle") else [])
+                if arts:
+                    doc_ref.set({"sourceArticles": ArrayUnion(arts), "updatedAt": now}, merge=True)
                 continue
 
-            doc = {k: v for k, v in p.items() if v is not None and k != "sourceArticle"}
-            doc["savedAt"] = now
+            # 저장 문서 구성 (sourceArticle 단일 키 제거)
+            doc = {k: v for k, v in p.items()
+                   if v is not None and k not in ("sourceArticle",)}
+            doc["savedAt"]   = doc.get("savedAt") or now
             doc["updatedAt"] = now
 
-            # 기존 candidatesGeneral 보존
+            # candidatesGeneral/Party 없으면 기존 보존
             if not doc.get("candidatesGeneral"):
                 doc.pop("candidatesGeneral", None)
             if not doc.get("candidatesParty"):
                 doc.pop("candidatesParty", None)
 
-            # sourceArticle → sourceArticles 배열에 추가
-            if p.get("sourceArticle"):
-                doc["sourceArticles"] = ArrayUnion([p["sourceArticle"]])
+            # 충돌 검사 — 기존 수치와 새 수치가 다르면 needsReview
+            if existing_snap.exists:
+                ex = existing_snap.to_dict()
+                ex_cands = {c["name"]: c["pct"] for c in ex.get("candidatesGeneral", [])}
+                new_cands = {c["name"]: c["pct"] for c in doc.get("candidatesGeneral", [])}
+                if ex_cands and new_cands and ex_cands != new_cands:
+                    diff = any(abs(ex_cands.get(n, 0) - new_cands.get(n, 0)) > 0.5
+                               for n in set(ex_cands) | set(new_cands))
+                    if diff:
+                        doc["needsReview"] = True
+                        logger.debug("[store] poll 수치 충돌 needsReview: {}", dedup_key)
+
+            # sourceArticles ArrayUnion
+            arts = p.get("sourceArticles") or ([p["sourceArticle"]] if p.get("sourceArticle") else [])
+            if arts:
+                doc["sourceArticles"] = ArrayUnion(arts)
 
             batch.set(doc_ref, doc, merge=True)
             n += 1
@@ -199,7 +214,7 @@ class FirestoreStore:
 
         if n % _BATCH_LIMIT:
             batch.commit()
-        logger.info("[store] polls {}건 저장 (dedupeKey 병합)", n)
+        logger.info("[store] polls {}건 저장 (poll master 병합)", n)
 
     def save_report(self, target_id: str, report_id: str, report: dict) -> None:
         self._target_ref(target_id).collection("reports").document(report_id).set(report)

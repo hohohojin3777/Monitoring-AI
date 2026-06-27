@@ -1,7 +1,8 @@
-"""전당대회 여론조사 전용 수집기.
+"""전당대회 여론조사 전용 수집기 — Poll Master 중심 구조.
 
-네이버뉴스에서 당대표 적합도/지지율 기사를 수집하고,
-일반 응답자 수치와 민주당 지지층 수치를 별도 추출한다.
+기사 1개 = poll row가 아니라, 동일 조사 = poll master 1개.
+같은 조사를 다룬 여러 기사는 sourceArticles 배열로 병합.
+dedupeKey = sha256(pollster_canon|start_date|end_date|sample_size)[:16]
 """
 from __future__ import annotations
 
@@ -18,7 +19,18 @@ from loguru import logger
 
 CANDIDATES = ["정청래", "김민석", "송영길", "김용민", "김두관", "강훈식"]
 
-# 검색 키워드 — 제목에 (당대표|전당대회) AND (지지율|여론조사|적합도) 필터와 함께 사용
+# ── 조사기관 정규화 ────────────────────────────────────────────
+# 미디어토마토=조사기관, 뉴스토마토=의뢰/보도매체 (계열사 관계)
+POLLSTER_CANON: dict[str, str] = {
+    "뉴스토마토": "미디어토마토",  # 뉴스토마토는 의뢰사, 조사는 미디어토마토
+}
+
+def _canon_pollster(name: str) -> str:
+    """조사기관명 표준화."""
+    return POLLSTER_CANON.get(name.strip(), name.strip())
+
+
+# ── 검색 키워드 ────────────────────────────────────────────────
 POLL_KEYWORDS = [
     "민주당 당대표 적합도",
     "전당대회 당대표 적합도",
@@ -27,35 +39,41 @@ POLL_KEYWORDS = [
     "당대표 후보 적합도",
     "민주당 전대 지지율",
     "민주당 당대표 여론조사",
+    # poll watch — 기관별 정기 탐지
+    "뉴스토마토 민주당 당대표",
+    "미디어토마토 민주당 당대표",
+    "김민석 정청래 여론조사",
+    "당대표 지지도 김민석",
+    "정기여론조사 민주당 당대표",
 ]
 
 TOPIC_KW = ["당대표", "전당대회", "전대"]
-POLL_KW = ["지지율", "여론조사", "적합도", "지지도"]
+POLL_KW  = ["지지율", "여론조사", "적합도", "지지도", "지지도조사"]
 
-# 후보 풀네임 정규식
-FULL_RE = re.compile(r"(" + "|".join(CANDIDATES) + r")[^0-9\n]{0,20}?(\d{1,3}(?:\.\d+)?)\s*%")
+# 대통령/국정 관련 → 당대표 여론조사에서 제외
+EXCLUDE_KW = [
+    "대통령 지지율", "대통령 지지도", "국정지지율", "국정수행",
+    "긍정평가", "부정평가", "이재명 지지율", "국정운영", "대통령 국정",
+]
 
-# 약칭+직함 → 풀네임 매핑
+# ── 후보 수치 추출 ─────────────────────────────────────────────
+FULL_RE = re.compile(
+    r"(" + "|".join(CANDIDATES) + r")[^0-9\n]{0,20}?(\d{1,3}(?:\.\d+)?)\s*%"
+)
 ABBREV: dict[tuple[str, str], str] = {
-    ("김", "총리"): "김민석",
-    ("정", "대표"): "정청래",
-    ("정", "의원"): "정청래",
-    ("송", "의원"): "송영길",
+    ("김", "총리"):   "김민석",
+    ("정", "대표"):   "정청래",
+    ("정", "의원"):   "정청래",
+    ("송", "의원"):   "송영길",
     ("송", "전대표"): "송영길",
-    ("김", "의원"): "김용민",
-    ("이", "전대표"): "이재명",
-    ("이", "대통령"): "이재명",
-    ("강", "의원"): "강훈식",
+    ("김", "의원"):   "김용민",
+    ("강", "의원"):   "강훈식",
 }
 ABBREV_RE = re.compile(
     r"([가-힣]{1,3})\s*(총리|대표|의원|전대표|의장|대통령|후보)\s*(\d{1,3}(?:\.\d+)?)\s*%"
 )
-OG_RE = re.compile(
-    r'<meta[^>]+property=["\']og:image["\'][^>]+content=["\'](https?://[^"\']+)["\']', re.I
-)
-OG_RE2 = re.compile(
-    r'<meta[^>]+content=["\'](https?://[^"\']+)["\'][^>]+property=["\']og:image["\']', re.I
-)
+OG_RE  = re.compile(r'<meta[^>]+property=["\']og:image["\'][^>]+content=["\'](https?://[^"\']+)["\']', re.I)
+OG_RE2 = re.compile(r'<meta[^>]+content=["\'](https?://[^"\']+)["\'][^>]+property=["\']og:image["\']', re.I)
 
 
 def _resolve(surname: str, title: str, full_names: set[str]) -> Optional[str]:
@@ -83,21 +101,15 @@ def _parse_candidates(snippet: str, full_names: set[str]) -> list[dict]:
 
 
 def extract_poll_sections(text: str) -> tuple[list[dict], list[dict]]:
-    """기사 본문에서 일반(전체)·민주당지지층 후보 수치를 별도 추출.
-
-    Returns:
-        (general, party) — 각각 [{name, pct}, ...]
-    """
+    """기사 본문에서 일반·민주당지지층 후보 수치를 별도 추출."""
     full_names = {m.group(1) for m in FULL_RE.finditer(text)} & set(CANDIDATES)
 
-    # 일반: 첫 후보 등장부터 지역별/정당별 교차분석 이전까지
     fi = min((text.find(n) for n in full_names if text.find(n) > 0), default=0)
     cut_keys = ["지역별로", "정당 지지층별", "이념성향별", "성별로", "연령별"]
     cuts = [text.find(k, fi) for k in cut_keys if text.find(k, fi) > 0]
     cut = min(cuts) if cuts else fi + 2000
     general = _parse_candidates(text[fi:cut], full_names)
 
-    # 민주당 지지층 단락
     idx = text.find("민주당 지지층")
     party: list[dict] = []
     if idx >= 0:
@@ -109,8 +121,8 @@ def extract_poll_sections(text: str) -> tuple[list[dict], list[dict]]:
     return general, party
 
 
+# ── 기사 본문 가져오기 ─────────────────────────────────────────
 async def _fetch_article(client: httpx.AsyncClient, url: str) -> tuple[str, str]:
-    """기사 본문 텍스트와 og:image URL 반환."""
     try:
         r = await client.get(url, timeout=10.0, follow_redirects=True,
                              headers={"User-Agent": "Mozilla/5.0 (Macintosh)"})
@@ -127,23 +139,7 @@ async def _fetch_article(client: httpx.AsyncClient, url: str) -> tuple[str, str]
         return "", ""
 
 
-def _parse_title_meta(title: str) -> dict:
-    """제목에서 매체명·기간 직접 파싱. 예: [천지일보 여론조사], [20260608-09]"""
-    meta: dict = {}
-    brackets = re.findall(r'\[([^\]]+)\]', title)
-    for b in brackets:
-        date_m = re.match(r'(\d{4})(\d{2})(\d{2})-(\d{2})', b)
-        if date_m:
-            y, m, d1, d2 = date_m.groups()
-            meta["pollPeriod"] = f"{y}-{m}-{d1}~{y}-{m}-{d2}"
-            continue
-        clean = re.sub(r'여론조사|정기여론조사', '', b).strip()
-        if clean and len(clean) >= 2:
-            meta["media"] = clean
-    return meta
-
-
-# 알려진 여론조사 기관 목록
+# ── 조사기관·의뢰기관·메타 정규식 추출 ────────────────────────
 _RESEARCH_FIRMS = (
     "한국갤럽|리얼미터|한국리서치|엠브레인|케이스탯|NBS|KSOI|윈지코리아|"
     "조원씨앤아이|리서치뷰|에이스리서치|피플네트웍스|미디어토마토|"
@@ -153,86 +149,114 @@ _MEDIA_FIRMS = (
     "KBS|MBC|SBS|YTN|JTBC|TV조선|채널A|MBN|연합뉴스|뉴시스|뉴스1|"
     "조선일보|중앙일보|동아일보|한겨레|경향신문|오마이뉴스|프레시안|"
     "문화일보|국민일보|서울신문|세계일보|한국일보|매일경제|한국경제|머니투데이|"
-    "헤럴드경제|아시아경제|이데일리|파이낸셜뉴스|뉴스토마토|"
-    "쿠키뉴스|노컷뉴스|CBS|TBS|OBS"
+    "헤럴드경제|아시아경제|이데일리|파이낸셜뉴스|뉴스토마토|스트레이트뉴스|"
+    "쿠키뉴스|노컷뉴스|천지일보|CBS|TBS|OBS"
 )
 
-_POLLSTER_RE = re.compile(r"(" + _RESEARCH_FIRMS + r")", re.IGNORECASE)
-_MEDIA_RE    = re.compile(r"(" + _MEDIA_FIRMS + r")", re.IGNORECASE)
+_POLLSTER_RE     = re.compile(r"(" + _RESEARCH_FIRMS + r")", re.IGNORECASE)
+_MEDIA_RE        = re.compile(r"(" + _MEDIA_FIRMS + r")", re.IGNORECASE)
+# "A가 B에 의뢰" 또는 "B 의뢰, A 조사" 패턴
+_UIROE_FULL_RE   = re.compile(r"([가-힣A-Za-z]{2,15})\s*(?:가|이|에서|측이|측에서)?\s*([가-힣A-Za-z]{2,15})\s*(?:에|에게|측에)?\s*(?:의뢰|위탁)")
+_UIROE_RE        = re.compile(r"(.{2,15}?)\s*(?:의뢰|위탁)")
+_JOSA_BEFORE_RE  = re.compile(r"([가-힣]{2,10}(?:리서치|미터|갤럽|조사|코리아|뷰|네트웍|데이터|토마토))\s*(?:가|이|에서|측이|측에서)?\s*(?:실시|조사|진행)")
 
-# "의뢰" 앞뒤 20자 안에서 기관명 찾기
-_UIROE_RE = re.compile(r"(.{2,15}?)\s*(?:의뢰|위탁)")
-# "조사" 앞 15자 안에서 기관명 찾기 (조사기관이 앞에 오는 경우)
-_JOSA_BEFORE_RE = re.compile(r"([가-힣]{2,10}(?:리서치|미터|갤럽|조사|코리아|뷰|네트웍|데이터|토마토))\s*(?:가|이|에서|측이|측에서)?\s*조사")
-
-# 조사기간
 _PERIOD_RE2 = re.compile(
     r"(\d{4})[.\-](\d{2})[.\-](\d{2})\s*[~\-]\s*(\d{4})[.\-](\d{2})[.\-](\d{2})"
 )
 _PERIOD_RE = re.compile(
     r"(\d{4})년?\s*(\d{1,2})월?\s*(\d{1,2})일?\s*[~\-]\s*(?:\d{4}년?\s*\d{1,2}월?\s*)?(\d{1,2})일?"
 )
-# 표본수
+_SINGLE_DATE_RE = re.compile(r"(\d{4})[.\-](\d{2})[.\-](\d{2})")
+
 _SAMPLE_RE  = re.compile(r"(?:표본|유효\s*표본|응답자)[:\s]*(\d[\d,]+)\s*명")
 _SAMPLE_RE2 = re.compile(r"(\d[\d,]+)\s*명(?:을|을\s*대상|을\s*목표)")
-# 오차범위
-_MARGIN_RE = re.compile(r"오차\s*범위[^\d±]{0,5}([±＋\-\+]?\s*\d+\.?\d*\s*%p?)")
-# 표본대상
-_GROUP_RE  = re.compile(r"(?:조사\s*대상|응답\s*대상)[:\s는]*([^\n,·]{4,30})")
-# 조사방법
-_METHOD_RE = re.compile(r"(?:조사\s*방법|조사\s*방식)[:\s는]*([^\n,·]{2,20})")
+_MARGIN_RE  = re.compile(r"오차\s*범위[^\d±]{0,5}([±＋\-\+]?\s*\d+\.?\d*\s*%p?)")
+_GROUP_RE   = re.compile(r"(?:조사\s*대상|응답\s*대상)[:\s는]*([^\n,·]{4,40})")
+_METHOD_RE  = re.compile(r"(?:조사\s*방법|조사\s*방식)[:\s는]*([^\n,·]{2,20})")
+_TOPIC_RE   = re.compile(r"(?:조사\s*주제|조사\s*내용)[:\s는]*([^\n,·]{4,40})")
 
 
 def _parse_body_meta(text: str) -> dict:
-    """기사 본문에서 조사기관·의뢰기관·기간·표본 등을 정규식으로 추출."""
-    meta: dict = {}
-    snippet = text[:3000]
+    """기사 본문에서 조사기관·의뢰기관·기간·표본 등을 정규식으로 추출.
 
-    # 1) 알려진 여론조사 기관명 직접 매칭 (가장 확실)
+    pollster = 실제 조사한 기관 (미디어토마토 등)
+    sponsor  = 조사를 의뢰한 기관/보도매체 (뉴스토마토, KBS 등)
+    """
+    meta: dict = {}
+    snippet = text[:4000]
+
+    # 1) "A가 B에 의뢰해 실시" 패턴 — 가장 명확
+    for m in _UIROE_FULL_RE.finditer(snippet):
+        sponsor_cand = m.group(1).strip()
+        pollster_cand = m.group(2).strip()
+        if _POLLSTER_RE.search(pollster_cand):
+            meta.setdefault("pollster", pollster_cand)
+            if _MEDIA_RE.search(sponsor_cand):
+                meta.setdefault("sponsor", sponsor_cand)
+            break
+        elif _POLLSTER_RE.search(sponsor_cand):
+            # 순서 반대인 경우
+            meta.setdefault("pollster", sponsor_cand)
+            if _MEDIA_RE.search(pollster_cand):
+                meta.setdefault("sponsor", pollster_cand)
+            break
+
+    # 2) 알려진 조사기관명 직접 매칭
     pm = _POLLSTER_RE.search(snippet)
     if pm:
-        meta["pollster"] = pm.group(1)
+        meta.setdefault("pollster", pm.group(1))
 
-    # 2) "의뢰" 앞에 있는 기관명 → media
-    for m in _UIROE_RE.finditer(snippet):
-        candidate = m.group(1).strip()
-        # 리서치 기관이면 pollster, 아니면 media
-        if _POLLSTER_RE.search(candidate):
-            if not meta.get("pollster"):
-                meta["pollster"] = candidate
-        elif len(candidate) >= 2 and not any(c in candidate for c in ["조사", "결과", "따르면"]):
-            if not meta.get("media"):
-                meta["media"] = candidate
-
-    # 3) "○○리서치가 조사" 패턴 — pollster fallback
+    # 3) "○○가 조사/실시" 패턴
     if not meta.get("pollster"):
         mj = _JOSA_BEFORE_RE.search(snippet)
         if mj:
             meta["pollster"] = mj.group(1).strip()
 
-    # 4) 알려진 미디어 기관명 fallback
-    if not meta.get("media"):
+    # 4) "○○ 의뢰" → 의뢰기관 추출
+    for m in _UIROE_RE.finditer(snippet):
+        candidate = m.group(1).strip()
+        if _POLLSTER_RE.search(candidate):
+            meta.setdefault("pollster", candidate)
+        elif _MEDIA_RE.search(candidate) and len(candidate) >= 2:
+            meta.setdefault("sponsor", candidate)
+
+    # 5) pollster가 미디어토마토 계열이면 정규화
+    if meta.get("pollster"):
+        meta["pollster"] = _canon_pollster(meta["pollster"])
+
+    # 6) 의뢰기관/보도매체 fallback
+    if not meta.get("sponsor"):
         mm = _MEDIA_RE.search(snippet)
         if mm:
-            meta["media"] = mm.group(1)
+            meta["sponsor"] = mm.group(1)
 
-    # 5) 조사기간
+    # 7) 조사기간 — 범위 우선
     m_p2 = _PERIOD_RE2.search(snippet)
     if m_p2:
-        meta["pollPeriod"] = (
-            f"{m_p2.group(1)}-{m_p2.group(2)}-{m_p2.group(3)}"
-            f"~{m_p2.group(4)}-{m_p2.group(5)}-{m_p2.group(6)}"
-        )
+        start = f"{m_p2.group(1)}-{m_p2.group(2)}-{m_p2.group(3)}"
+        end   = f"{m_p2.group(4)}-{m_p2.group(5)}-{m_p2.group(6)}"
+        meta["pollStartDate"] = start
+        meta["pollEndDate"]   = end
+        meta["pollPeriod"]    = f"{start}~{end}"
     else:
         m_p = _PERIOD_RE.search(snippet)
         if m_p:
-            y = m_p.group(1)
+            y   = m_p.group(1)
             mon = m_p.group(2).zfill(2)
-            d1 = m_p.group(3).zfill(2)
-            d2 = m_p.group(4).zfill(2)
-            meta["pollPeriod"] = f"{y}-{mon}-{d1}~{y}-{mon}-{d2}"
+            d1  = m_p.group(3).zfill(2)
+            d2  = m_p.group(4).zfill(2)
+            meta["pollStartDate"] = f"{y}-{mon}-{d1}"
+            meta["pollEndDate"]   = f"{y}-{mon}-{d2}"
+            meta["pollPeriod"]    = f"{y}-{mon}-{d1}~{y}-{mon}-{d2}"
+        else:
+            m_sd = _SINGLE_DATE_RE.search(snippet)
+            if m_sd:
+                d = f"{m_sd.group(1)}-{m_sd.group(2)}-{m_sd.group(3)}"
+                meta["pollStartDate"] = d
+                meta["pollEndDate"]   = d
+                meta["pollPeriod"]    = d
 
-    # 6) 표본수
+    # 8) 표본수
     m_s = _SAMPLE_RE.search(snippet) or _SAMPLE_RE2.search(snippet)
     if m_s:
         try:
@@ -240,17 +264,17 @@ def _parse_body_meta(text: str) -> dict:
         except ValueError:
             pass
 
-    # 7) 오차범위
+    # 9) 오차범위
     m_e = _MARGIN_RE.search(snippet)
     if m_e:
         meta["marginOfError"] = m_e.group(1).strip()
 
-    # 8) 조사대상
+    # 10) 조사대상
     m_g = _GROUP_RE.search(snippet)
     if m_g:
-        meta["sampleGroup"] = m_g.group(1).strip()
+        meta["sampleGroup"] = m_g.group(1).strip()[:40]
 
-    # 9) 조사방법
+    # 11) 조사방법
     m_m = _METHOD_RE.search(snippet)
     if m_m:
         meta["surveyMethod"] = m_m.group(1).strip()
@@ -258,8 +282,50 @@ def _parse_body_meta(text: str) -> dict:
     return meta
 
 
+def _parse_title_meta(title: str) -> dict:
+    """제목에서 매체명·기간 직접 파싱."""
+    meta: dict = {}
+    brackets = re.findall(r'\[([^\]]+)\]', title)
+    for b in brackets:
+        date_m = re.match(r'(\d{4})(\d{2})(\d{2})-(\d{2})', b)
+        if date_m:
+            y, mo, d1, d2 = date_m.groups()
+            meta["pollStartDate"] = f"{y}-{mo}-{d1}"
+            meta["pollEndDate"]   = f"{y}-{mo}-{d2}"
+            meta["pollPeriod"]    = f"{y}-{mo}-{d1}~{y}-{mo}-{d2}"
+            continue
+        clean = re.sub(r'여론조사|정기여론조사', '', b).strip()
+        if clean and len(clean) >= 2:
+            if _POLLSTER_RE.search(clean):
+                meta.setdefault("pollster", _canon_pollster(clean))
+            elif _MEDIA_RE.search(clean):
+                meta.setdefault("sponsor", clean)
+    return meta
+
+
+def _make_dedupe_key(pollster: str, start: str, end: str, sample_size) -> str:
+    """강화된 dedupeKey: pollster(정규화)+기간+표본수.
+
+    기간과 표본수가 없으면 신뢰도 낮으므로 fallback url 사용.
+    """
+    ps = _canon_pollster(pollster).lower().strip() if pollster else ""
+    s  = (start or "").strip()
+    e  = (end or "").strip()
+    sz = str(int(sample_size)) if sample_size else ""
+    raw = f"{ps}|{s}|{e}|{sz}"
+    return hashlib.sha256(raw.encode()).hexdigest()[:16]
+
+
+def _leading_candidate(candidates: list[dict]) -> str:
+    if not candidates:
+        return ""
+    top = max(candidates, key=lambda c: c.get("pct", 0))
+    return top.get("name", "")
+
+
+# ── GPT 구조화 추출 ───────────────────────────────────────────
 async def _gpt_parse_poll(title: str, text: str) -> dict:
-    """GPT-4o-mini로 여론조사 전체 메타 + 후보 수치 추출."""
+    """GPT로 여론조사 전체 메타 + 후보 수치 추출."""
     try:
         openai_key = os.environ.get("OPENAI_API_KEY")
         if not openai_key:
@@ -270,29 +336,36 @@ async def _gpt_parse_poll(title: str, text: str) -> dict:
         snippet = (title + "\n\n" + text)[:3000]
         resp = await client.chat.completions.create(
             model="gpt-4o-mini",
-            max_tokens=600,
+            max_tokens=700,
             messages=[
                 {
                     "role": "system",
                     "content": (
                         "다음 기사에서 더불어민주당 전당대회 당대표 여론조사 정보를 추출하라.\n"
-                        "후보: 이재명, 정청래, 김민석, 송영길, 김용민, 김두관, 강훈식\n"
+                        "후보: 정청래, 김민석, 송영길, 김용민, 김두관, 강훈식\n"
+                        "중요: 대통령 지지율/국정지지율 조사는 isPollArticle=false로 처리.\n"
                         "결과는 반드시 JSON만 출력. 형식:\n"
                         "{\n"
-                        '  "pollster": "조사기관명 (예: 한국갤럽)",\n'
-                        '  "media": "의뢰 매체명 (예: KBS, 조선일보)",\n'
-                        '  "pollPeriod": "조사기간 (예: 2026-06-20~2026-06-22)",\n'
-                        '  "sampleSize": 1000,\n'
-                        '  "sampleGroup": "조사대상 (예: 전국 만18세 이상)",\n'
-                        '  "marginOfError": "오차범위 (예: ±3.1%p)",\n'
-                        '  "surveyMethod": "조사방법 (예: 전화면접, ARS)",\n'
+                        '  "isPollArticle": true,\n'
+                        '  "isPartyLeaderPoll": true,\n'
+                        '  "pollster": "조사기관명 (실제 조사 수행한 기관, 예: 미디어토마토)",\n'
+                        '  "sponsor": "의뢰·보도 매체명 (예: 뉴스토마토)",\n'
+                        '  "pollStartDate": "2026-06-22",\n'
+                        '  "pollEndDate": "2026-06-23",\n'
+                        '  "sampleSize": 1035,\n'
+                        '  "sampleGroup": "전국 만18세 이상 성인",\n'
+                        '  "marginOfError": "±3.1%p",\n'
+                        '  "surveyMethod": "전화면접",\n'
                         '  "general": [{"name": "김민석", "pct": 27.4}],\n'
-                        '  "party": [{"name": "김민석", "pct": 35.2}]\n'
+                        '  "party": [],\n'
+                        '  "extractionConfidence": 0.9,\n'
+                        '  "needsReview": false\n'
                         "}\n"
                         "- general: 전체/일반 응답자 기준 지지율\n"
                         "- party: 민주당 지지층 기준 (없으면 빈 배열)\n"
-                        "- 없는 항목은 null 또는 빈값\n"
-                        "- 수치가 아예 없는 기사면 general/party는 빈 배열"
+                        "- 없는 항목은 null\n"
+                        "- 수치가 없으면 general/party는 빈 배열\n"
+                        "- pollster와 sponsor를 혼동하지 말 것"
                     ),
                 },
                 {"role": "user", "content": snippet},
@@ -300,42 +373,123 @@ async def _gpt_parse_poll(title: str, text: str) -> dict:
             response_format={"type": "json_object"},
         )
         parsed = json.loads(resp.choices[0].message.content or "{}")
-        # 후보 수치 검증
-        parsed["general"] = [
-            c for c in parsed.get("general", [])
-            if c.get("name") in CANDIDATES and isinstance(c.get("pct"), (int, float))
-        ]
-        parsed["party"] = [
-            c for c in parsed.get("party", [])
-            if c.get("name") in CANDIDATES and isinstance(c.get("pct"), (int, float))
-        ]
-        # "-" 또는 빈값은 None으로 정리
-        for field in ["pollster", "media", "pollPeriod", "sampleGroup", "marginOfError", "surveyMethod"]:
+
+        # 당대표 여론조사가 아닌 경우 빈 결과
+        if not parsed.get("isPollArticle") or not parsed.get("isPartyLeaderPoll"):
+            return {"_not_poll": True}
+
+        # 수치 검증
+        for key in ("general", "party"):
+            parsed[key] = [
+                c for c in parsed.get(key, [])
+                if c.get("name") in CANDIDATES and isinstance(c.get("pct"), (int, float))
+            ]
+        # pollster 정규화
+        if parsed.get("pollster"):
+            parsed["pollster"] = _canon_pollster(parsed["pollster"])
+        # 빈값 정리
+        for field in ["pollster", "sponsor", "sampleGroup", "marginOfError", "surveyMethod"]:
             if parsed.get(field) in ("-", "", "없음", "미상", "알 수 없음", None):
                 parsed[field] = None
-        # 제목 직접 파싱으로 보완
-        title_meta = _parse_title_meta(title)
-        for k, v in title_meta.items():
-            if v and not parsed.get(k):
-                parsed[k] = v
+
         return parsed
     except Exception as e:
         logger.warning("[poll_gpt] 파싱 실패: {}", e)
         return {}
 
 
-async def _gpt_parse_candidates(title: str, text: str) -> tuple[list[dict], list[dict]]:
-    """하위 호환용 래퍼."""
-    result = await _gpt_parse_poll(title, text)
-    return result.get("general", []), result.get("party", [])
+# ── URL 수동 분석 (분석 큐 처리) ──────────────────────────────
+async def analyze_url(url: str) -> dict:
+    """단일 기사 URL을 즉시 분석해 poll 구조화 데이터 반환."""
+    async with httpx.AsyncClient() as client:
+        text, image = await _fetch_article(client, url)
+    if not text:
+        return {"error": "기사 본문을 가져올 수 없습니다"}
+
+    body_meta = _parse_body_meta(text)
+    general, party = extract_poll_sections(text)
+    if not general:
+        general = [{"name": m.group(1), "pct": float(m.group(2))}
+                   for m in FULL_RE.finditer(text[:2000])]
+
+    needs_gpt = not general or not body_meta.get("pollster")
+    if needs_gpt:
+        gpt = await _gpt_parse_poll("", text)
+        if not gpt.get("_not_poll"):
+            general = general or gpt.get("general", [])
+            party   = party   or gpt.get("party", [])
+            for k, v in gpt.items():
+                if v and k not in ("general", "party", "_not_poll") and not body_meta.get(k):
+                    body_meta[k] = v
+
+    pollster   = body_meta.get("pollster") or ""
+    start      = body_meta.get("pollStartDate") or ""
+    end        = body_meta.get("pollEndDate") or ""
+    sample_sz  = body_meta.get("sampleSize")
+
+    dedup_key = _make_dedupe_key(pollster, start, end, sample_sz) if (pollster and start) else \
+                hashlib.sha256(url.encode()).hexdigest()[:16]
+
+    return {
+        "dedupeKey":     dedup_key,
+        "pollster":      pollster,
+        "sponsor":       body_meta.get("sponsor") or "",
+        "pollStartDate": start,
+        "pollEndDate":   end,
+        "pollPeriod":    body_meta.get("pollPeriod") or "",
+        "sampleSize":    sample_sz,
+        "sampleGroup":   body_meta.get("sampleGroup") or "",
+        "marginOfError": body_meta.get("marginOfError") or "",
+        "surveyMethod":  body_meta.get("surveyMethod") or "",
+        "candidatesGeneral": general,
+        "candidatesParty":   party,
+        "leadingCandidate":  _leading_candidate(general),
+        "hasData":       len(general) >= 1,
+        "needsReview":   len(general) == 0 and bool(pollster),
+        "sourceArticle": {"url": url, "title": "", "platform": "manual"},
+    }
 
 
+# ── 분석 큐 처리 ──────────────────────────────────────────────
+async def process_analysis_queue(target_id: str, store) -> int:
+    """Firestore pollAnalysisQueue에서 pending 항목을 처리."""
+    try:
+        db = store.connect()
+        queue_ref = store._target_ref(target_id).collection("pollAnalysisQueue")
+        pending = [d for d in queue_ref.where("status", "==", "pending").stream()]
+        if not pending:
+            return 0
+
+        results = []
+        for doc in pending:
+            data = doc.to_dict()
+            url = data.get("url", "")
+            if not url:
+                doc.reference.update({"status": "error", "error": "URL 없음"})
+                continue
+            try:
+                doc.reference.update({"status": "processing"})
+                result = await analyze_url(url)
+                result["sourceArticle"]["title"] = data.get("title", "")
+                result["source"] = "manual_queue"
+                result["savedAt"] = datetime.now(timezone.utc)
+                results.append(result)
+                doc.reference.update({"status": "done"})
+                logger.info("[poll_queue] 분석 완료: {}", url[:60])
+            except Exception as e:
+                doc.reference.update({"status": "error", "error": str(e)})
+
+        if results:
+            store.save_polls(target_id, results)
+        return len(results)
+    except Exception as e:
+        logger.warning("[poll_queue] 큐 처리 실패: {}", e)
+        return 0
+
+
+# ── 메인 수집 함수 ─────────────────────────────────────────────
 async def collect_poll_news(since: datetime | None = None) -> list[dict]:
-    """네이버뉴스에서 전당대회 당대표 여론조사 기사 수집.
-
-    필터: 제목에 (당대표|전당대회|전대) AND (지지율|여론조사|적합도) 모두 포함.
-    각 기사에서 일반 수치(candidatesGeneral)와 민주당 지지층 수치(candidatesParty)를 추출.
-    """
+    """네이버뉴스에서 전당대회 당대표 여론조사 기사 수집 → poll master 단위로 반환."""
     from ..collectors.naver import NaverCollector
 
     if since is None:
@@ -345,114 +499,129 @@ async def collect_poll_news(since: datetime | None = None) -> list[dict]:
     collector = NaverCollector()
     raw = await collector.collect(POLL_KEYWORDS, since=since, limit=600)
 
-    # 제목 필터
-    EXCLUDE_KW = ["대통령 지지율", "대통령 지지도", "국정지지율", "국정수행", "긍정평가", "부정평가", "이재명 지지율"]
+    # 제목 필터: 당대표/전당대회 AND 여론조사 키워드 포함, 대통령 관련 제외
     filtered = [
         it for it in raw
         if (any(k in it.title for k in TOPIC_KW) and any(k in it.title for k in POLL_KW))
         and not any(k in it.title for k in EXCLUDE_KW)
-        and it.platform in {"naver_news", "naver_blog", "google_news", "nate_news", "daum_news"}
+        and it.platform in {"naver_news", "google_news", "nate_news", "daum_news"}
     ]
 
-    # 중복 제거
     seen_urls: set[str] = set()
     unique = [it for it in filtered if not (it.url in seen_urls or seen_urls.add(it.url))]  # type: ignore
     logger.info("[poll_news] 수집 {}건 → 필터 {}건", len(raw), len(unique))
 
-    # 기사 본문 패치해서 수치 추출 (네이버 블로그 제외 — JS 렌더링 필요)
-    news_only = [it for it in unique if "blog.naver.com" not in it.url]
+    # 기사 본문 수집 및 파싱
     async with httpx.AsyncClient() as client:
-        for it in news_only:
+        for it in unique:
             text, image = await _fetch_article(client, it.url)
-            if text:
-                general, party = extract_poll_sections(text)
-                # 정규식 실패 시 snippet 수치 시도
-                if not general:
-                    snippet_cands = [{"name": m.group(1), "pct": float(m.group(2))}
-                                     for m in FULL_RE.finditer(f"{it.title} {it.content}")]
-                    general = snippet_cands
+            if not text:
+                continue
 
-                # 1순위: 본문 정규식으로 메타 파싱
-                body_meta = _parse_body_meta(text)
-                title_meta = _parse_title_meta(it.title)
-                # 제목 메타로 빈칸 보완
-                for k, v in title_meta.items():
-                    if v and not body_meta.get(k):
+            general, party = extract_poll_sections(text)
+            if not general:
+                general = [{"name": m.group(1), "pct": float(m.group(2))}
+                           for m in FULL_RE.finditer(f"{it.title} {it.content}")]
+
+            # 1순위: 본문 정규식
+            body_meta = _parse_body_meta(text)
+            title_meta = _parse_title_meta(it.title)
+            for k, v in title_meta.items():
+                if v and not body_meta.get(k):
+                    body_meta[k] = v
+            it.__dict__["_body_meta"] = body_meta
+
+            # 2순위: 정규식 실패 시 GPT
+            needs_gpt = (not general) or (not body_meta.get("pollster") and not body_meta.get("pollPeriod"))
+            if needs_gpt:
+                gpt = await _gpt_parse_poll(it.title, text)
+                if gpt.get("_not_poll"):
+                    it.__dict__["_skip"] = True
+                    continue
+                general = general or gpt.get("general", [])
+                party   = party   or gpt.get("party", [])
+                for k, v in gpt.items():
+                    if v and k not in ("general", "party", "_not_poll") and not body_meta.get(k):
                         body_meta[k] = v
-                it.__dict__["_body_meta"] = body_meta
 
-                # 2순위: 정규식으로 후보 수치·메타 못 얻은 경우만 GPT
-                needs_gpt = (not general) or (not body_meta.get("pollster") and not body_meta.get("pollPeriod"))
-                if needs_gpt:
-                    gpt_result = await _gpt_parse_poll(it.title, text)
-                    general = general or gpt_result.get("general", [])
-                    party = party or gpt_result.get("party", [])
-                    if gpt_result.get("general"):
-                        logger.info("[poll_gpt] GPT 파싱 성공: {} → {}건", it.title[:30], len(gpt_result["general"]))
-                    # GPT로 빈칸 보완 (정규식 우선)
-                    for k, v in gpt_result.items():
-                        if v and k not in ("general", "party") and not body_meta.get(k):
-                            body_meta[k] = v
-                    it.__dict__["_gpt_meta"] = gpt_result
-
-                it.__dict__["_general"] = general
-                it.__dict__["_party"] = party
+            it.__dict__["_general"] = general
+            it.__dict__["_party"]   = party
             if image:
                 it.image_url = image
 
-    results = []
+    # poll master 단위로 결과 생성
+    raw_results = []
     for it in unique:
-        general = it.__dict__.get("_general") or [
-            {"name": m.group(1), "pct": float(m.group(2))}
-            for m in FULL_RE.finditer(f"{it.title} {it.content}")
-        ]
-        party = it.__dict__.get("_party", [])
-        # 정규식 메타 우선, GPT로 보완된 값 사용
-        meta = it.__dict__.get("_body_meta") or it.__dict__.get("_gpt_meta") or {}
+        if it.__dict__.get("_skip"):
+            continue
+        general = it.__dict__.get("_general") or []
+        party   = it.__dict__.get("_party", [])
+        meta    = it.__dict__.get("_body_meta") or {}
 
         pollster    = meta.get("pollster") or ""
+        sponsor     = meta.get("sponsor") or ""
+        start       = meta.get("pollStartDate") or ""
+        end         = meta.get("pollEndDate") or ""
         poll_period = meta.get("pollPeriod") or ""
-        sample_size = meta.get("sampleSize") or None
+        sample_size = meta.get("sampleSize")
         sample_group = meta.get("sampleGroup") or ""
 
-        # dedupeKey: pollster + pollPeriod + sampleGroup + sampleSize 조합
-        # 없으면 url 기반 fallback
-        if pollster and poll_period:
-            dedup_raw = f"{pollster}|{poll_period}|{sample_group}|{sample_size or ''}"
+        # dedupeKey: pollster+기간+표본수 기준 (신뢰도 높음)
+        if pollster and start:
+            dedup_key = _make_dedupe_key(pollster, start, end, sample_size)
         else:
-            dedup_raw = it.url
-        dedup_key = hashlib.sha256(dedup_raw.encode()).hexdigest()[:16]
+            dedup_key = hashlib.sha256(it.url.encode()).hexdigest()[:16]
 
-        results.append({
-            "title": it.title,
-            "url": it.url,
-            "platform": it.platform,
-            "publishedAt": it.published_at,
-            "content": it.content[:300],
+        raw_results.append({
+            "dedupeKey":         dedup_key,
+            "surveyType":        "party_leader",
+            "pollster":          pollster,
+            "sponsor":           sponsor,
+            "pollStartDate":     start,
+            "pollEndDate":       end,
+            "pollPeriod":        poll_period,
+            "sampleSize":        sample_size,
+            "sampleGroup":       sample_group,
+            "marginOfError":     meta.get("marginOfError") or "",
+            "surveyMethod":      meta.get("surveyMethod") or "",
             "candidatesGeneral": general,
-            "candidatesParty": party,
-            "hasData": len(general) >= 2,
-            "dedupeKey": dedup_key,
-            # 원문 기사 묶음 (Firestore merge 시 sourceArticles 배열에 추가)
+            "candidatesParty":   party,
+            "leadingCandidate":  _leading_candidate(general),
+            "hasData":           len(general) >= 2,
+            "needsReview":       len(general) == 0 and bool(pollster),
+            "source":            "news",
+            "imageUrl":          it.image_url or "",
             "sourceArticle": {
-                "title": it.title,
-                "url": it.url,
+                "title":       it.title,
+                "url":         it.url,
                 "publishedAt": it.published_at,
-                "platform": it.platform,
+                "platform":    it.platform,
             },
-            # 조사 메타 정보
-            "pollster":     pollster,
-            "media":        meta.get("media") or "",
-            "pollPeriod":   poll_period,
-            "sampleSize":   sample_size,
-            "sampleGroup":  sample_group,
-            "marginOfError":meta.get("marginOfError") or "",
-            "surveyMethod": meta.get("surveyMethod") or "",
-            "needsReview":  len(general) == 0 and bool(pollster),
-            "source": "news",
-            "imageUrl": it.image_url or "",
         })
 
-    # 수치 없는 것도 저장하되 hasData=False 태그로 구분 (대시보드에서 필터 가능)
-    logger.info("[poll_news] 수치 있는 조사: {}건 / 전체: {}건", sum(1 for r in results if r["hasData"]), len(results))
+    # 인-프로세스 1차 병합: 같은 dedupeKey끼리 sourceArticles 모으기
+    merged: dict[str, dict] = {}
+    for r in raw_results:
+        k = r["dedupeKey"]
+        if k not in merged:
+            merged[k] = {**r, "sourceArticles": [r["sourceArticle"]]}
+            del merged[k]["sourceArticle"]
+        else:
+            existing = merged[k]
+            # sourceArticles 중복 없이 추가
+            urls_seen = {a["url"] for a in existing["sourceArticles"]}
+            if r["sourceArticle"]["url"] not in urls_seen:
+                existing["sourceArticles"].append(r["sourceArticle"])
+            # 누락 필드 보완 (수치는 덮어쓰지 않음)
+            for field in ("pollster", "sponsor", "sampleSize", "sampleGroup", "marginOfError", "surveyMethod"):
+                if not existing.get(field) and r.get(field):
+                    existing[field] = r[field]
+            # candidatesGeneral는 더 많은 쪽 유지
+            if len(r.get("candidatesGeneral", [])) > len(existing.get("candidatesGeneral", [])):
+                existing["candidatesGeneral"] = r["candidatesGeneral"]
+                existing["leadingCandidate"]  = r["leadingCandidate"]
+                existing["hasData"]           = r["hasData"]
+
+    results = list(merged.values())
+    logger.info("[poll_news] poll master {}개 (원본 {}건)", len(results), len(raw_results))
     return results

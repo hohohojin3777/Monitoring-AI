@@ -448,13 +448,17 @@ async def run_target(target_id: str, store: FirestoreStore | None = None, collec
 
     # 7) 여론조사 수집 (파이프라인 실행마다 갱신)
     try:
-        from .collectors.poll_collector import collect_poll_news
+        from .collectors.poll_collector import collect_poll_news, process_analysis_queue
         from datetime import timedelta
         poll_since = datetime.now(timezone.utc) - timedelta(days=90)
         polls = await collect_poll_news(since=poll_since)
         if polls:
             store.save_polls(target_id, polls)
-            logger.info("[pipeline] 여론조사 {}건 저장", len(polls))
+            logger.info("[pipeline] 여론조사 poll master {}건 저장", len(polls))
+        # URL 수동 분석 큐 처리
+        q_count = await process_analysis_queue(target_id, store)
+        if q_count:
+            logger.info("[pipeline] 분석 큐 {}건 처리", q_count)
     except Exception as e:
         logger.warning("[pipeline] 여론조사 수집 실패: {}", e)
 
