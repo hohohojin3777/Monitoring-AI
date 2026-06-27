@@ -54,7 +54,7 @@ def _build_collectors(target: Target):
     return [c for c in collectors if c.available()]
 
 
-async def _collect_watch_accounts(target: Target, s) -> list[RawItem]:
+async def _collect_watch_accounts(target: Target, s, store=None) -> list[RawItem]:
     """watch_targets 기반 SNS 계정 직접 모니터링.
 
     tier별 주기 적용:
@@ -93,7 +93,7 @@ async def _collect_watch_accounts(target: Target, s) -> list[RawItem]:
 
     try:
         return await asyncio.wait_for(
-            collect_targets(collect_this_cycle, profile_dir, limit_per_account=10),
+            collect_targets(collect_this_cycle, profile_dir, limit_per_account=10, store=store),
             timeout=600,  # 10분
         )
     except asyncio.TimeoutError:
@@ -344,7 +344,7 @@ async def run_target(target_id: str, store: FirestoreStore | None = None, collec
     raw = await _collect_all(target, collectors)
 
     # 1-b) 특정 계정 모니터링 수집 (watchAccounts)
-    watch_items = await _collect_watch_accounts(target, s)
+    watch_items = await _collect_watch_accounts(target, s, store=store)
     if watch_items:
         logger.info("[pipeline] 계정 모니터링 {}건 추가", len(watch_items))
         raw.extend(watch_items)

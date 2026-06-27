@@ -14,12 +14,15 @@ import hashlib
 import json
 import re
 from datetime import datetime, timedelta, timezone
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 from playwright.async_api import async_playwright, Page
 
 from .base import RawItem
+
+if TYPE_CHECKING:
+    from ..store.firestore import FirestoreStore
 
 # ── 플랫폼별 포스트 링크 패턴 ─────────────────────────────────
 _POST_RE: dict[str, re.Pattern] = {
@@ -159,11 +162,32 @@ async def collect_watch_accounts(
     return await collect_targets(targets, profile_dir, limit_per_account=limit_per_account)
 
 
+def _account_doc_id(name: str, platform: str) -> str:
+    raw = f"{name}:{platform}"
+    return hashlib.sha256(raw.encode()).hexdigest()[:12]
+
+
+def _detect_failure_reason(error_msg: str) -> str:
+    msg = error_msg.lower()
+    if "login" in msg or "로그인" in msg or "sign in" in msg:
+        return "login_expired"
+    if "captcha" in msg or "checkpoint" in msg:
+        return "captcha"
+    if "rate" in msg or "too many" in msg or "429" in msg:
+        return "rate_limit"
+    if "timeout" in msg or "timed out" in msg:
+        return "network_error"
+    if "selector" in msg or "element" in msg:
+        return "selector_changed"
+    return "unknown"
+
+
 async def collect_targets(
     targets: list[dict],
     profile_dir: str,
     limit_per_account: int = 10,
     since: datetime | None = None,
+    store: "FirestoreStore | None" = None,
 ) -> list[RawItem]:
     """watch_targets 포맷의 타깃 리스트를 수집."""
     if not targets:
@@ -172,6 +196,7 @@ async def collect_targets(
         since = datetime.now(timezone.utc) - timedelta(hours=24)
 
     all_items: list[RawItem] = []
+    now = datetime.now(timezone.utc)
 
     async with async_playwright() as pw:
         ctx = await pw.chromium.launch_persistent_context(
@@ -186,19 +211,68 @@ async def collect_targets(
             name = target.get("name", "")
             platforms = target.get("platforms", {})
             relation = target.get("relationCandidate", "확인 필요")
+            tier = target.get("tier", "B")
+            crawl_interval = target.get("crawlIntervalMinutes", 120)
 
             for platform, pconf in platforms.items():
                 if platform not in _POST_RE:
                     continue
-                items = await _collect_platform(
-                    page=page,
-                    platform=platform,
-                    name=name,
-                    pconf=pconf,
-                    limit=limit_per_account,
-                    relation=relation,
-                )
-                all_items.extend(items)
+
+                acc_id = _account_doc_id(name, platform)
+                try:
+                    items = await _collect_platform(
+                        page=page,
+                        platform=platform,
+                        name=name,
+                        pconf=pconf,
+                        limit=limit_per_account,
+                        relation=relation,
+                    )
+                    all_items.extend(items)
+
+                    # 수집 성공 상태 업데이트
+                    if store:
+                        try:
+                            store.update_account_status(
+                                acc_id,
+                                status="active",
+                                last_collected_at=now,
+                                last_success_at=now if items else None,
+                                last_error=None,
+                                failure_reason=None,
+                            )
+                        except Exception as se:
+                            logger.debug("[account_monitor] 상태 업데이트 실패 {}: {}", acc_id, se)
+
+                    # S급 YouTube 24시간 미수집 의심 alert
+                    if store and tier == "S" and platform == "youtube" and not items:
+                        try:
+                            store.save_sns_alert(acc_id, name, "S급 YouTube 미수집 의심", {
+                                "tier": tier,
+                                "platform": platform,
+                                "lastAttemptAt": now,
+                            })
+                        except Exception:
+                            pass
+
+                except Exception as e:
+                    error_msg = str(e)
+                    failure_reason = _detect_failure_reason(error_msg)
+                    next_retry = now + timedelta(minutes=crawl_interval * 2)
+                    logger.warning("[account_monitor] {} @{}/{} 실패({}): {}", name, platform, acc_id, failure_reason, error_msg[:80])
+
+                    if store:
+                        try:
+                            store.update_account_status(
+                                acc_id,
+                                status="warning",
+                                last_collected_at=now,
+                                last_error=error_msg[:300],
+                                failure_reason=failure_reason,
+                                next_retry_at=next_retry,
+                            )
+                        except Exception as se:
+                            logger.debug("[account_monitor] 상태 업데이트 실패 {}: {}", acc_id, se)
 
         await ctx.close()
 

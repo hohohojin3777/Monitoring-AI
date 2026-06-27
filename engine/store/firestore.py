@@ -227,6 +227,56 @@ class FirestoreStore:
         )
         return [d.to_dict() for d in q.stream()]
 
+    # ── monitored_accounts ────────────────────────────────────
+    def _account_ref(self, account_id: str):
+        return self.connect().collection("monitored_accounts").document(account_id)
+
+    def upsert_monitored_account(self, account_id: str, doc: dict) -> None:
+        self._account_ref(account_id).set(doc, merge=True)
+
+    def update_account_status(
+        self,
+        account_id: str,
+        *,
+        status: str,
+        last_collected_at: datetime | None = None,
+        last_success_at: datetime | None = None,
+        last_error: str | None = None,
+        failure_reason: str | None = None,
+        next_retry_at: datetime | None = None,
+    ) -> None:
+        now = datetime.now(timezone.utc)
+        patch: dict = {"status": status, "updatedAt": now}
+        if last_collected_at is not None:
+            patch["lastCollectedAt"] = last_collected_at
+        if last_success_at is not None:
+            patch["lastSuccessAt"] = last_success_at
+        if last_error is not None:
+            patch["lastError"] = last_error
+            patch["lastErrorAt"] = now
+        if failure_reason is not None:
+            patch["failureReason"] = failure_reason
+        if next_retry_at is not None:
+            patch["nextRetryAt"] = next_retry_at
+        self._account_ref(account_id).set(patch, merge=True)
+
+    def get_monitored_accounts(self, enabled_only: bool = True) -> list[dict]:
+        q = self.connect().collection("monitored_accounts")
+        if enabled_only:
+            q = q.where("enabled", "==", True)
+        return [{"id": d.id, **d.to_dict()} for d in q.stream()]
+
+    def save_sns_alert(self, account_id: str, name: str, reason: str, extra: dict | None = None) -> None:
+        doc = {
+            "type": "sns_missing",
+            "accountId": account_id,
+            "accountName": name,
+            "reason": reason,
+            "createdAt": datetime.now(timezone.utc),
+            **(extra or {}),
+        }
+        self.connect().collection("monitored_accounts").document(account_id).collection("alerts").add(doc)
+
     # ── cleanup ────────────────────────────────────────────────
     def cleanup_old(self, target_id: str, window_days: int = 30) -> int:
         since = datetime.now(timezone.utc) - timedelta(days=window_days)
