@@ -136,6 +136,9 @@ class FakeStore:
     def save_keyword_trend(self, tid, date, doc):
         self.keyword_trend[date] = doc
 
+    def save_polls(self, tid, polls):
+        pass  # 테스트에서 여론조사 저장 불필요
+
     def save_report(self, tid, rid, doc):
         self.reports[rid] = doc
 
