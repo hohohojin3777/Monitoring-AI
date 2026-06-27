@@ -346,7 +346,7 @@ def _keyword_trend(items: list[RawItem], target: Target) -> dict:
     return {"date": now_kst.strftime("%Y-%m-%d %H:%M"), "top": top}
 
 
-async def run_target(target_id: str, store: FirestoreStore | None = None, collectors=None) -> dict:
+async def run_target(target_id: str, store: FirestoreStore | None = None, collectors=None, skip_sns: bool = False) -> dict:
     s = get_settings()
     store = store or FirestoreStore(s)
     target = store.get_target(target_id)
@@ -358,10 +358,11 @@ async def run_target(target_id: str, store: FirestoreStore | None = None, collec
     raw = await _collect_all(target, collectors)
 
     # 1-b) 특정 계정 모니터링 수집 (watchAccounts)
-    watch_items = await _collect_watch_accounts(target, s, store=store)
-    if watch_items:
-        logger.info("[pipeline] 계정 모니터링 {}건 추가", len(watch_items))
-        raw.extend(watch_items)
+    if not skip_sns:
+        watch_items = await _collect_watch_accounts(target, s, store=store)
+        if watch_items:
+            logger.info("[pipeline] 계정 모니터링 {}건 추가", len(watch_items))
+            raw.extend(watch_items)
 
     # 2) 필터
     seen = store.recent_item_ids(target_id, days=s.window_days)

@@ -177,7 +177,7 @@ async def _sim():
     store = FakeStore(target)
 
     # ── RUN 1 ──
-    r1 = await run_target("sim", store=store, collectors=[FakeCollector(_run1_items())])
+    r1 = await run_target("sim", store=store, collectors=[FakeCollector(_run1_items())], skip_sns=True)
     assert r1["passed"] == 5, r1                 # 1~5 통과
     assert r1["rejected"] == 3, r1               # 중복·노이즈·무관
     assert len(store.items) == 5, len(store.items)
@@ -203,7 +203,7 @@ async def _sim():
         _ri("naver_news", "news", "https://n.news/11", "김민석 부동산 의혹 추가 폭로 나와", "negative", "기자A"),
         _ri("naver_news", "news", "https://n.news/1", "김민석 부동산 의혹 논란 확산", "negative"),  # 이미 수집됨→중복
     ]
-    r2 = await run_target("sim", store=store, collectors=[FakeCollector(run2)])
+    r2 = await run_target("sim", store=store, collectors=[FakeCollector(run2)], skip_sns=True)
     assert r2["passed"] == 2, r2                  # 새 글 2건
     assert r2["rejected"] == 1, r2                # 중복 1건
     assert store.clusters[big_id]["itemCount"] == 5, store.clusters[big_id]["itemCount"]
