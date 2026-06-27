@@ -19,6 +19,24 @@ from ..collectors.base import RawItem
 from .embed import Embedder
 
 
+import re as _re
+
+_SNS_PREFIX_RE = _re.compile(r"^\[([^\]]+)\]\s*")
+
+
+def _cluster_title(item: "RawItem") -> str:
+    """클러스터 대표 제목 — SNS 이름 태그만 있으면 content 앞부분으로 보완."""
+    title = item.title or ""
+    # "[이름]" 접두사만 있고 뒤에 내용이 없는 경우 → content로 보완
+    m = _SNS_PREFIX_RE.match(title)
+    if m and len(title.strip()) <= len(m.group(0).strip()) + 5:
+        prefix = m.group(0)  # "[이름] "
+        body = item.content[:60].strip() if item.content else ""
+        if body:
+            return f"{prefix}{body}"
+    return title or item.text[:40]
+
+
 @dataclass
 class Cluster:
     cluster_id: str
@@ -96,7 +114,7 @@ def assign_clusters(
             published = item.published_at or now
             c = Cluster(
                 cluster_id=cid,
-                title=item.title or item.text[:40],
+                title=_cluster_title(item),
                 rep_text=item.text,
                 first_seen=published,
                 last_seen=published,

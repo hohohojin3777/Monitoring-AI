@@ -58,6 +58,71 @@ def _source_id_from_url(platform: str, url: str) -> str:
     return url
 
 
+# ── 상대 시간 → 절대 datetime 변환 (YouTube "2일 전" 등) ─────────
+def _parse_relative_time(text: str, now: datetime) -> datetime | None:
+    """'2일 전', '3시간 전', '1주 전', '2 days ago' 등을 datetime으로 변환."""
+    text = text.strip()
+    patterns = [
+        (r"(\d+)\s*초\s*전", "seconds"),
+        (r"(\d+)\s*분\s*전", "minutes"),
+        (r"(\d+)\s*시간\s*전", "hours"),
+        (r"(\d+)\s*일\s*전", "days"),
+        (r"(\d+)\s*주\s*전", "weeks"),
+        (r"(\d+)\s*개월\s*전", "months"),
+        (r"(\d+)\s*년\s*전", "years"),
+        (r"(\d+)\s*second", "seconds"),
+        (r"(\d+)\s*minute", "minutes"),
+        (r"(\d+)\s*hour", "hours"),
+        (r"(\d+)\s*day", "days"),
+        (r"(\d+)\s*week", "weeks"),
+        (r"(\d+)\s*month", "months"),
+        (r"(\d+)\s*year", "years"),
+    ]
+    import re as _re
+    for pattern, unit in patterns:
+        m = _re.search(pattern, text, _re.IGNORECASE)
+        if m:
+            n = int(m.group(1))
+            if unit == "seconds":   return now - timedelta(seconds=n)
+            if unit == "minutes":   return now - timedelta(minutes=n)
+            if unit == "hours":     return now - timedelta(hours=n)
+            if unit == "days":      return now - timedelta(days=n)
+            if unit == "weeks":     return now - timedelta(weeks=n)
+            if unit == "months":    return now - timedelta(days=n * 30)
+            if unit == "years":     return now - timedelta(days=n * 365)
+    return None
+
+
+# ── 플랫폼별 발행 시간 파싱 ──────────────────────────────────
+async def _extract_published_at(page: Page, platform: str, now: datetime) -> datetime | None:
+    """포스트 페이지에서 실제 발행 시간 추출."""
+    try:
+        if platform == "x":
+            # X: <time datetime="2026-06-25T10:30:00.000Z">
+            el = page.locator("article time[datetime]").first
+            if await el.count() > 0:
+                dt_str = await el.get_attribute("datetime")
+                if dt_str:
+                    from datetime import datetime as dt
+                    return dt.fromisoformat(dt_str.replace("Z", "+00:00"))
+        elif platform == "facebook":
+            # Facebook: <abbr data-utime="1234567890"> 또는 <time datetime="...">
+            el = page.locator("abbr[data-utime]").first
+            if await el.count() > 0:
+                utime = await el.get_attribute("data-utime")
+                if utime:
+                    return datetime.fromtimestamp(int(utime), tz=timezone.utc)
+            el2 = page.locator("time[datetime]").first
+            if await el2.count() > 0:
+                dt_str = await el2.get_attribute("datetime")
+                if dt_str:
+                    from datetime import datetime as dt
+                    return dt.fromisoformat(dt_str.replace("Z", "+00:00"))
+    except Exception:
+        pass
+    return None
+
+
 # ── 플랫폼별 텍스트 추출 ──────────────────────────────────────
 async def _extract_text(page: Page, platform: str) -> str:
     selectors: dict[str, list[str]] = {
@@ -121,12 +186,14 @@ async def _collect_youtube_browser(page: Page, handle: str, limit: int = 10) -> 
                                   or vr.get("viewCountText", {}).get("runs", [{}])[0].get("text", ""))
                     pub_text = vr.get("publishedTimeText", {}).get("simpleText", "")
                     if vid_id and title:
+                        pub_dt = _parse_relative_time(pub_text, datetime.now(timezone.utc)) if pub_text else None
                         videos.append({
                             "videoId": vid_id,
                             "title": title,
                             "url": f"https://www.youtube.com/watch?v={vid_id}",
                             "views": views_text,
                             "publishedTimeText": pub_text,
+                            "publishedAt": pub_dt,
                         })
         except (KeyError, IndexError, TypeError):
             pass
@@ -308,7 +375,7 @@ async def _collect_platform(
                 content=v.get("views", ""),
                 author=name,
                 author_id=handle,
-                published_at=datetime.now(timezone.utc),  # 정확한 시각 없음 — 상대시각만 있음
+                published_at=v.get("publishedAt") or datetime.now(timezone.utc),
                 matched_entities=[name],
                 raw={
                     "dedupeKey": make_dedupe_key("youtube", source_id),
@@ -365,6 +432,7 @@ async def _collect_platform(
                     continue
                 source_id = _source_id_from_url(platform, post_url)
                 dedupe_key = make_dedupe_key(platform, source_id)
+                pub_at = await _extract_published_at(page, platform, datetime.now(timezone.utc))
                 items.append(RawItem(
                     platform=platform,
                     source_type="sns",
@@ -373,7 +441,7 @@ async def _collect_platform(
                     content=text,
                     author=name,
                     author_id=account_id,
-                    published_at=datetime.now(timezone.utc),
+                    published_at=pub_at or datetime.now(timezone.utc),
                     matched_entities=[name],
                     raw={
                         "dedupeKey": dedupe_key,
