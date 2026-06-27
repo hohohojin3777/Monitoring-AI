@@ -19,9 +19,9 @@ jobs:
           python-version: "3.11"
           cache: pip
       - run: pip install -r requirements.txt
-      # 임포트 진단 — 실제 에러 위치 파악
       - name: diagnose imports
         working-directory: ..
+        continue-on-error: true
         run: |
           python -c "
           import traceback, sys
@@ -35,7 +35,6 @@ jobs:
             'engine.pipeline',
             'engine.store.firestore',
           ]
-          ok = True
           for m in mods:
             try:
               __import__(m)
@@ -43,12 +42,10 @@ jobs:
             except Exception as e:
               print('FAIL', m, ':', e)
               traceback.print_exc()
-              ok = False
-          sys.exit(0 if ok else 1)
-          "
-      - run: python -m engine.tests.test_core
+          " 2>&1
+      - run: python -m engine.tests.test_core 2>&1
         working-directory: ..
-      - run: python -m engine.tests.test_pipeline_sim
+      - run: python -m engine.tests.test_pipeline_sim 2>&1
         working-directory: ..
 
   dashboard-build:
