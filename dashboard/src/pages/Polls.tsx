@@ -446,21 +446,6 @@ export default function Polls() {
     return null;
   }, [polls]);
 
-  // 이전 조사 김민석 지지율 (두 번째 조사)
-  const prevKim = useMemo(() => {
-    let count = 0;
-    for (const p of polls) {
-      const cands = getGeneralCands(p);
-      const found = cands.find((c) => c.name === "김민석");
-      if (found) {
-        count++;
-        if (count === 2) return found.pct;
-      }
-    }
-    return null;
-  }, [polls]);
-
-  const kimChange = latestKim && prevKim !== null ? latestKim.pct - prevKim : null;
 
   return (
     <div className="space-y-5">
@@ -481,18 +466,13 @@ export default function Polls() {
           color={latestKim ? "text-brand" : "text-gray-400"}
         />
         <KpiCard
-          label="전 조사 대비"
-          value={
-            kimChange !== null
-              ? `${kimChange > 0 ? "▲" : kimChange < 0 ? "▼" : "─"} ${Math.abs(kimChange).toFixed(1)}%p`
-              : "-"
-          }
-          sub="직전 조사 기준"
-          color={
-            kimChange !== null
-              ? kimChange > 0 ? "text-green-accent" : kimChange < 0 ? "text-danger-red" : "text-gray-500"
-              : "text-gray-400"
-          }
+          label="최근 조사 1위"
+          value={(() => {
+            const top = polls[0] ? [...getGeneralCands(polls[0])].sort((a, b) => b.pct - a.pct)[0] : null;
+            return top ? `${top.name} ${top.pct}%` : "-";
+          })()}
+          sub={polls[0]?.pollster || polls[0]?.org || ""}
+          color="text-navy"
         />
         <KpiCard
           label="총 여론조사 수"

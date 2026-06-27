@@ -147,19 +147,33 @@ async def _extract_text(page: Page, platform: str) -> str:
 
 
 # ── YouTube 브라우저 채널 수집 ────────────────────────────────
-async def _collect_youtube_browser(page: Page, handle: str, limit: int = 10) -> list[dict]:
-    """YouTube 채널 핸들(@handle)의 최신 영상 목록을 브라우저로 수집.
-    ytInitialData JSON 파싱 → API 키 불필요.
+async def _collect_youtube_browser(page: Page, handle: str, limit: int = 10, channel_id: str = "") -> list[dict]:
+    """YouTube 채널 핸들(@handle) 또는 channelId로 최신 영상 목록을 수집.
+    handle이 404면 channelId로 자동 fallback.
     """
-    url = f"https://www.youtube.com/{handle}/videos"
+    candidates = []
+    if handle:
+        candidates.append(f"https://www.youtube.com/{handle}/videos")
+    if channel_id:
+        candidates.append(f"https://www.youtube.com/channel/{channel_id}/videos")
+    if not candidates:
+        return []
+    url = candidates[0]
     try:
         await page.goto(url, wait_until="domcontentloaded", timeout=30000)
         await page.wait_for_timeout(3000)
         content = await page.content()
+        # 404 → 다음 후보 URL 시도
+        if "404" in (await page.title()) or page.url == "https://www.youtube.com/error":
+            if len(candidates) > 1:
+                url = candidates[1]
+                await page.goto(url, wait_until="domcontentloaded", timeout=30000)
+                await page.wait_for_timeout(3000)
+                content = await page.content()
         # ytInitialData JSON 추출
         m = re.search(r"var ytInitialData\s*=\s*(\{.+?\});\s*</script>", content, re.DOTALL)
         if not m:
-            logger.debug("[yt_browser] ytInitialData 없음: {}", handle)
+            logger.debug("[yt_browser] ytInitialData 없음: {} / {}", handle, url)
             return []
         data = json.loads(m.group(1))
         # 영상 렌더러 찾기
@@ -360,10 +374,11 @@ async def _collect_platform(
     # ── YouTube: 브라우저로 채널 Videos 탭 직접 파싱 ──────────
     if platform == "youtube":
         handle = pconf.get("handle", "")
-        if not handle:
+        channel_id = pconf.get("channelId", "")
+        if not handle and not channel_id:
             return []
         logger.info("[account_monitor] youtube {} 수집 중…", name)
-        videos = await _collect_youtube_browser(page, handle, limit=limit)
+        videos = await _collect_youtube_browser(page, handle, limit=limit, channel_id=channel_id)
         items = []
         for v in videos:
             source_id = v["videoId"]
