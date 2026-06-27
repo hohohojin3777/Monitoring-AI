@@ -19,6 +19,7 @@ feedparser>=6.0
 beautifulsoup4>=4.12
 lxml>=5.2
 playwright>=1.44
+openai>=1.30
 
 # 저장 (Firestore)
 firebase-admin>=6.5
