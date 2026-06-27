@@ -22,6 +22,8 @@ jobs:
 
       - name: run all tests with full output
         working-directory: ..
+        env:
+          PYTHONPATH: .
         run: |
           set +e
           echo "=== test_core ==="
