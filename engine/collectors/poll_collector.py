@@ -5,6 +5,7 @@
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -279,6 +280,20 @@ async def collect_poll_news(since: datetime | None = None) -> list[dict]:
         ]
         party = it.__dict__.get("_party", [])
         meta = it.__dict__.get("_gpt_meta", {})
+
+        pollster   = meta.get("pollster") or ""
+        poll_period = meta.get("pollPeriod") or ""
+        sample_size = meta.get("sampleSize") or None
+        sample_group = meta.get("sampleGroup") or ""
+
+        # dedupeKey: pollster + pollPeriod + sampleGroup + sampleSize 조합
+        # 없으면 url 기반 fallback
+        if pollster and poll_period:
+            dedup_raw = f"{pollster}|{poll_period}|{sample_group}|{sample_size or ''}"
+        else:
+            dedup_raw = it.url
+        dedup_key = hashlib.sha256(dedup_raw.encode()).hexdigest()[:16]
+
         results.append({
             "title": it.title,
             "url": it.url,
@@ -288,14 +303,23 @@ async def collect_poll_news(since: datetime | None = None) -> list[dict]:
             "candidatesGeneral": general,
             "candidatesParty": party,
             "hasData": len(general) >= 2,
+            "dedupeKey": dedup_key,
+            # 원문 기사 묶음 (Firestore merge 시 sourceArticles 배열에 추가)
+            "sourceArticle": {
+                "title": it.title,
+                "url": it.url,
+                "publishedAt": it.published_at,
+                "platform": it.platform,
+            },
             # 조사 메타 정보
-            "pollster":     meta.get("pollster") or "",      # 조사기관
-            "media":        meta.get("media") or "",         # 의뢰 매체
-            "pollPeriod":   meta.get("pollPeriod") or "",    # 조사기간
-            "sampleSize":   meta.get("sampleSize") or None,  # 표본 수
-            "sampleGroup":  meta.get("sampleGroup") or "",   # 조사대상
-            "marginOfError":meta.get("marginOfError") or "", # 오차범위
-            "surveyMethod": meta.get("surveyMethod") or "",  # 조사방법
+            "pollster":     pollster,
+            "media":        meta.get("media") or "",
+            "pollPeriod":   poll_period,
+            "sampleSize":   sample_size,
+            "sampleGroup":  sample_group,
+            "marginOfError":meta.get("marginOfError") or "",
+            "surveyMethod": meta.get("surveyMethod") or "",
+            "needsReview":  len(general) == 0 and bool(pollster),
             "source": "news",
             "imageUrl": it.image_url or "",
         })

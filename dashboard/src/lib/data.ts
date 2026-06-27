@@ -206,6 +206,20 @@ export async function cancelStrategyRequest(requestId: string) {
   await deleteDoc(doc(db, "targets", T, "strategyRequests", requestId));
 }
 
+/** 여론조사 수동 저장/수정 — manualVerified=true 처리 */
+export async function savePollManual(pollId: string | null, data: Record<string, unknown>) {
+  const ref = pollId
+    ? doc(db, "targets", T, "polls", pollId)
+    : doc(collection(db, "targets", T, "polls"));
+  await setDoc(ref, {
+    ...data,
+    manualVerified: true,
+    savedAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  }, { merge: true });
+  return ref.id;
+}
+
 /** 회원 확인(읽음) 기록 */
 export async function recordAck(clusterId: string, uid: string, displayName: string) {
   await setDoc(

@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState, Fragment } from "react";
 import { usePolls } from "../lib/data";
 
 const CANDIDATES_ORDER = ["김민석", "정청래", "송영길", "김용민"];
@@ -30,12 +30,17 @@ type Poll = {
   imageUrl?: string;
   content?: string;
   // 신규 메타 필드
-  pollster?: string;       // 조사기관
-  media?: string;          // 의뢰 매체
-  pollPeriod?: string;     // 조사기간
-  sampleSize?: number;     // 표본 수
-  marginOfError?: string;  // 오차범위
-  surveyMethod?: string;   // 조사방법
+  pollster?: string;
+  media?: string;
+  pollPeriod?: string;
+  sampleSize?: number;
+  marginOfError?: string;
+  surveyMethod?: string;
+  // dedupeKey 병합 관련
+  dedupeKey?: string;
+  sourceArticles?: { title: string; url: string; publishedAt?: any; platform?: string }[];
+  needsReview?: boolean;
+  manualVerified?: boolean;
 };
 
 function dateOf(p: Poll): string {
@@ -192,6 +197,214 @@ function TrendChart({
   );
 }
 
+// ── 여론조사 테이블 (sourceArticles 펼침 + needsReview) ───────
+function PollTable({ polls }: { polls: Poll[] }) {
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+
+  function toggle(id: string) {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  }
+
+  const HEADERS = ["조사기간", "조사기관", "의뢰 매체", "조사대상", "표본", "오차범위",
+    "김민석", "정청래", "송영길", "김용민", "1위", "원문기사", "확인상태"];
+
+  return (
+    <div className="rounded-xl border border-gray-200 bg-white shadow-sm overflow-hidden">
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="bg-navy text-white">
+              {HEADERS.map((h) => (
+                <th key={h} className="px-3 py-3 text-left text-xs font-semibold whitespace-nowrap">{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-100">
+            {polls.map((p) => {
+              const cands = getGeneralCands(p);
+              const get = (name: string) => cands.find((c) => c.name === name)?.pct;
+              const top = [...cands].filter((c) => CANDIDATES_ALL.includes(c.name)).sort((a, b) => b.pct - a.pct)[0];
+              const link = p.detailUrl || p.url;
+              const kim = get("김민석");
+              const isExpanded = expanded.has(p.id);
+              const articles = p.sourceArticles ?? (link ? [{ title: p.title ?? "", url: link }] : []);
+
+              return (
+                <Fragment key={p.id}>
+                  <tr className="hover:bg-gray-50 transition">
+                    <td className="px-3 py-2.5 text-xs text-gray-600 whitespace-nowrap font-mono">
+                      {p.pollPeriod || dateOf(p) || "-"}
+                    </td>
+                    <td className="px-3 py-2.5 text-xs text-gray-700 whitespace-nowrap font-semibold">
+                      {p.pollster || p.org || p.client || "-"}
+                    </td>
+                    <td className="px-3 py-2.5 text-xs text-gray-500 whitespace-nowrap">
+                      {p.media || p.name || "-"}
+                    </td>
+                    <td className="px-3 py-2.5 text-xs text-gray-500 whitespace-nowrap">
+                      {p.sampleGroup || p.respondents || "-"}
+                    </td>
+                    <td className="px-3 py-2.5 text-xs text-gray-400 whitespace-nowrap">
+                      {p.sampleSize ? `${p.sampleSize.toLocaleString()}명` : "-"}
+                    </td>
+                    <td className="px-3 py-2.5 text-xs text-gray-400 whitespace-nowrap">
+                      {p.marginOfError || "-"}
+                    </td>
+                    <td className={`px-3 py-2.5 text-sm font-black whitespace-nowrap ${kim !== undefined ? "text-brand" : "text-gray-300"}`}>
+                      {kim !== undefined ? `${kim}%` : "-"}
+                    </td>
+                    {["정청래", "송영길", "김용민"].map((name) => {
+                      const val = get(name);
+                      return (
+                        <td key={name} className="px-3 py-2.5 text-xs text-gray-600 whitespace-nowrap">
+                          {val !== undefined ? `${val}%` : <span className="text-gray-300">-</span>}
+                        </td>
+                      );
+                    })}
+                    <td className="px-3 py-2.5 text-xs font-bold whitespace-nowrap" style={{ color: COLORS[top?.name ?? ""] ?? DEFAULT_COLOR }}>
+                      {top?.name ?? "-"}{top && <span className="ml-1 text-gray-400 font-normal">({top.pct}%)</span>}
+                    </td>
+                    <td className="px-3 py-2.5">
+                      {articles.length > 0 ? (
+                        <button onClick={() => toggle(p.id)} className="text-xs text-brand hover:underline whitespace-nowrap">
+                          원문 {articles.length}건 {isExpanded ? "▲" : "▼"}
+                        </button>
+                      ) : <span className="text-xs text-gray-300">-</span>}
+                    </td>
+                    <td className="px-3 py-2.5 text-xs whitespace-nowrap">
+                      {p.manualVerified && <span className="rounded bg-green-100 px-1.5 py-0.5 text-green-700 font-bold">수동검증</span>}
+                      {p.needsReview && !p.manualVerified && <span className="rounded bg-yellow-100 px-1.5 py-0.5 text-yellow-700">확인필요</span>}
+                      {!p.needsReview && !p.manualVerified && <span className="text-gray-300">-</span>}
+                    </td>
+                  </tr>
+                  {isExpanded && articles.length > 0 && (
+                    <tr className="bg-blue-50">
+                      <td colSpan={HEADERS.length} className="px-6 py-3">
+                        <div className="text-xs font-bold text-gray-500 mb-1.5">원문 기사 {articles.length}건</div>
+                        <div className="space-y-1">
+                          {articles.map((a, i) => (
+                            <div key={i} className="flex items-center gap-2">
+                              <a href={a.url} target="_blank" rel="noreferrer"
+                                className="text-xs text-brand hover:underline truncate max-w-xl">
+                                {a.title || a.url}
+                              </a>
+                              <span className="text-xs text-gray-400 shrink-0">
+                                {a.publishedAt?.toDate?.()?.toISOString?.()?.slice(0, 10) ?? ""}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// ── 수동 입력/수정 폼 (자동 추출 보정용) ────────────────────────
+function ManualPollForm({ editPoll, onClose }: { editPoll?: Poll; onClose: () => void }) {
+  const [saving, setSaving] = useState(false);
+  const [form, setForm] = useState({
+    pollster: editPoll?.pollster ?? "",
+    media: editPoll?.media ?? "",
+    pollPeriod: editPoll?.pollPeriod ?? "",
+    sampleGroup: editPoll?.sampleGroup ?? editPoll?.respondents ?? "",
+    sampleSize: editPoll?.sampleSize?.toString() ?? "",
+    marginOfError: editPoll?.marginOfError ?? "",
+    surveyMethod: editPoll?.surveyMethod ?? "",
+    kim: getGeneralCands(editPoll ?? {} as Poll).find((c) => c.name === "김민석")?.pct?.toString() ?? "",
+    jcr: getGeneralCands(editPoll ?? {} as Poll).find((c) => c.name === "정청래")?.pct?.toString() ?? "",
+    syg: getGeneralCands(editPoll ?? {} as Poll).find((c) => c.name === "송영길")?.pct?.toString() ?? "",
+    kym: getGeneralCands(editPoll ?? {} as Poll).find((c) => c.name === "김용민")?.pct?.toString() ?? "",
+    url: editPoll?.url ?? "",
+  });
+
+  function set(k: keyof typeof form, v: string) {
+    setForm((prev) => ({ ...prev, [k]: v }));
+  }
+
+  async function handleSave() {
+    const { savePollManual } = await import("../lib/data");
+    setSaving(true);
+    try {
+      const candidatesGeneral = [
+        { name: "김민석", pct: parseFloat(form.kim) },
+        { name: "정청래", pct: parseFloat(form.jcr) },
+        { name: "송영길", pct: parseFloat(form.syg) },
+        { name: "김용민", pct: parseFloat(form.kym) },
+      ].filter((c) => !isNaN(c.pct));
+
+      await savePollManual(editPoll?.id ?? null, {
+        pollster: form.pollster,
+        media: form.media,
+        pollPeriod: form.pollPeriod,
+        sampleGroup: form.sampleGroup,
+        sampleSize: form.sampleSize ? parseInt(form.sampleSize) : null,
+        marginOfError: form.marginOfError,
+        surveyMethod: form.surveyMethod,
+        url: form.url,
+        candidatesGeneral,
+        hasData: candidatesGeneral.length >= 2,
+        needsReview: false,
+        source: "manual",
+      });
+      alert("저장됐습니다.");
+      onClose();
+    } catch (e) {
+      alert("저장 실패: " + e);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const inputCls = "w-full rounded border border-gray-200 px-2.5 py-1.5 text-sm focus:outline-none focus:border-brand";
+  const labelCls = "text-xs font-bold text-gray-500 mb-1";
+
+  return (
+    <div className="rounded-xl border border-brand/30 bg-blue-50 p-5 space-y-4">
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm font-bold text-gray-800">
+          {editPoll ? "여론조사 수정" : "여론조사 수동 입력"} — 자동 추출 보정용
+        </h3>
+        <button onClick={onClose} className="text-xs text-gray-400 hover:text-gray-600">✕ 닫기</button>
+      </div>
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+        <div><p className={labelCls}>조사기관 *</p><input className={inputCls} value={form.pollster} onChange={(e) => set("pollster", e.target.value)} placeholder="한국갤럽" /></div>
+        <div><p className={labelCls}>의뢰 매체</p><input className={inputCls} value={form.media} onChange={(e) => set("media", e.target.value)} placeholder="KBS" /></div>
+        <div><p className={labelCls}>조사기간</p><input className={inputCls} value={form.pollPeriod} onChange={(e) => set("pollPeriod", e.target.value)} placeholder="2026-06-20~2026-06-22" /></div>
+        <div><p className={labelCls}>조사대상</p><input className={inputCls} value={form.sampleGroup} onChange={(e) => set("sampleGroup", e.target.value)} placeholder="전국 만18세 이상" /></div>
+        <div><p className={labelCls}>표본 수</p><input className={inputCls} type="number" value={form.sampleSize} onChange={(e) => set("sampleSize", e.target.value)} placeholder="1000" /></div>
+        <div><p className={labelCls}>오차범위</p><input className={inputCls} value={form.marginOfError} onChange={(e) => set("marginOfError", e.target.value)} placeholder="±3.1%p" /></div>
+      </div>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div><p className={labelCls}>김민석 (%)</p><input className={inputCls} type="number" step="0.1" value={form.kim} onChange={(e) => set("kim", e.target.value)} /></div>
+        <div><p className={labelCls}>정청래 (%)</p><input className={inputCls} type="number" step="0.1" value={form.jcr} onChange={(e) => set("jcr", e.target.value)} /></div>
+        <div><p className={labelCls}>송영길 (%)</p><input className={inputCls} type="number" step="0.1" value={form.syg} onChange={(e) => set("syg", e.target.value)} /></div>
+        <div><p className={labelCls}>김용민 (%)</p><input className={inputCls} type="number" step="0.1" value={form.kym} onChange={(e) => set("kym", e.target.value)} /></div>
+      </div>
+      <div><p className={labelCls}>원문 URL</p><input className={inputCls} value={form.url} onChange={(e) => set("url", e.target.value)} placeholder="https://..." /></div>
+      <p className="text-xs text-gray-400">수동 입력 데이터는 manualVerified=true로 표시되며 자동 추출로 덮어쓰이지 않습니다.</p>
+      <div className="flex gap-2">
+        <button onClick={handleSave} disabled={saving || !form.pollster}
+          className="rounded-lg bg-brand px-4 py-2 text-sm font-bold text-white hover:opacity-80 disabled:opacity-40">
+          {saving ? "저장 중…" : "저장"}
+        </button>
+        <button onClick={onClose} className="rounded-lg border border-gray-200 px-4 py-2 text-sm text-gray-600 hover:bg-gray-50">취소</button>
+      </div>
+    </div>
+  );
+}
+
 // ── KPI 카드 ──────────────────────────────────────────────────
 function KpiCard({ label, value, sub, color = "text-navy" }: {
   label: string; value: string; sub?: string; color?: string;
@@ -209,6 +422,7 @@ function KpiCard({ label, value, sub, color = "text-navy" }: {
 export default function Polls() {
   const { data: allPolls, loading } = usePolls();
   const [view, setView] = useState<"table" | "cards">("table");
+  const [showManualForm, setShowManualForm] = useState(false);
 
   const polls: Poll[] = useMemo(() => {
     return (allPolls as Poll[])
@@ -294,6 +508,9 @@ export default function Polls() {
         />
       </div>
 
+      {/* 수동 입력 폼 */}
+      {showManualForm && <ManualPollForm onClose={() => setShowManualForm(false)} />}
+
       {/* 뷰 전환 */}
       <div className="flex items-center gap-2">
         <button
@@ -313,6 +530,10 @@ export default function Polls() {
           카드 보기
         </button>
         <span className="ml-auto text-sm text-gray-400">{polls.length}건</span>
+        <button onClick={() => setShowManualForm((v) => !v)}
+          className="rounded-lg border border-brand px-3 py-1.5 text-sm font-semibold text-brand hover:bg-brand/10">
+          + 수동 입력
+        </button>
       </div>
 
       {loading ? (
@@ -322,87 +543,10 @@ export default function Polls() {
       ) : view === "table" ? (
         <>
           {/* ── 테이블 뷰 ── */}
-          <div className="rounded-xl border border-gray-200 bg-white shadow-sm overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="bg-navy text-white">
-                    {["조사기간", "조사기관", "의뢰 매체", "조사대상", "표본", "오차범위", "김민석", "정청래", "송영길", "김용민", "1위", "원문"].map(
-                      (h) => (
-                        <th
-                          key={h}
-                          className="px-3 py-3 text-left text-xs font-semibold whitespace-nowrap"
-                        >
-                          {h}
-                        </th>
-                      )
-                    )}
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100">
-                  {polls.map((p) => {
-                    const cands = getGeneralCands(p);
-                    const get = (name: string) => cands.find((c) => c.name === name)?.pct;
-                    const top = [...cands]
-                      .filter((c) => CANDIDATES_ALL.includes(c.name))
-                      .sort((a, b) => b.pct - a.pct)[0];
-                    const link = p.detailUrl || p.url;
-                    const kim = get("김민석");
-                    return (
-                      <tr key={p.id} className="hover:bg-gray-50 transition">
-                        <td className="px-3 py-2.5 text-xs text-gray-600 whitespace-nowrap font-mono">
-                          {p.pollPeriod || dateOf(p) || "-"}
-                        </td>
-                        <td className="px-3 py-2.5 text-xs text-gray-700 whitespace-nowrap">
-                          <p className="font-semibold">{p.pollster || p.org || p.client || "-"}</p>
-                        </td>
-                        <td className="px-3 py-2.5 text-xs text-gray-500 whitespace-nowrap">
-                          {p.media || p.name || "-"}
-                        </td>
-                        <td className="px-3 py-2.5 text-xs text-gray-500 whitespace-nowrap">
-                          {p.sampleGroup || p.respondents || "-"}
-                        </td>
-                        <td className="px-3 py-2.5 text-xs text-gray-400 whitespace-nowrap">
-                          {p.sampleSize ? `${p.sampleSize.toLocaleString()}명` : "-"}
-                        </td>
-                        <td className="px-3 py-2.5 text-xs text-gray-400 whitespace-nowrap">
-                          {p.marginOfError || "-"}
-                        </td>
-                        <td className={`px-3 py-2.5 text-sm font-black whitespace-nowrap ${
-                          kim !== undefined ? "text-brand" : "text-gray-300"
-                        }`}>
-                          {kim !== undefined ? `${kim}%` : "-"}
-                        </td>
-                        {["정청래", "송영길", "김용민"].map((name) => {
-                          const val = get(name);
-                          return (
-                            <td key={name} className="px-3 py-2.5 text-xs text-gray-600 whitespace-nowrap">
-                              {val !== undefined ? `${val}%` : <span className="text-gray-300">-</span>}
-                            </td>
-                          );
-                        })}
-                        <td className="px-3 py-2.5 text-xs font-bold whitespace-nowrap"
-                          style={{ color: COLORS[top?.name ?? ""] ?? DEFAULT_COLOR }}>
-                          {top?.name ?? "-"}
-                          {top && <span className="ml-1 text-gray-400 font-normal">({top.pct}%)</span>}
-                        </td>
-                        <td className="px-3 py-2.5">
-                          {link ? (
-                            <a href={link} target="_blank" rel="noreferrer"
-                              className="text-xs text-brand hover:underline whitespace-nowrap">
-                              원문 ↗
-                            </a>
-                          ) : (
-                            <span className="text-xs text-gray-300">-</span>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </div>
+          <PollTable polls={polls} />
+          <p className="text-xs text-gray-400 text-center">
+            * 중복 제거 기준: 조사기관 + 조사기간 + 조사대상 + 표본수. 원문 기사 N건은 클릭하면 펼쳐집니다.
+          </p>
 
           {/* 그래프 */}
           <TrendChart

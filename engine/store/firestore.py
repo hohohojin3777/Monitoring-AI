@@ -144,30 +144,61 @@ class FirestoreStore:
         self._target_ref(target_id).collection("alerts").add(alert)
 
     def save_polls(self, target_id: str, polls: list[dict]) -> None:
-        """여론조사 결과 저장 — polls 컬렉션."""
+        """여론조사 결과 저장 — dedupeKey 기반 병합.
+
+        같은 dedupeKey(pollster+pollPeriod+sampleGroup)의 기사는 하나의 문서로 병합하고
+        sourceArticles 배열에 원문 기사를 누적한다.
+        수동 입력(manualVerified=true) 문서는 자동 추출로 덮어쓰지 않는다.
+        """
         import hashlib
+        from google.cloud.firestore_v1 import ArrayUnion
+
         coll = self._target_ref(target_id).collection("polls")
         db = self.connect()
         batch = db.batch()
         n = 0
+        now = datetime.now(timezone.utc)
+
         for p in polls:
-            key = p.get("regNo") or p.get("url") or str(p.get("title", ""))
-            doc_id = hashlib.sha256(key.encode()).hexdigest()[:16]
-            doc = {k: v for k, v in p.items() if v is not None}
-            doc["savedAt"] = datetime.now(timezone.utc)
-            # 새 파싱 결과에 후보 없으면 기존 데이터 보존 (덮어쓰기 방지)
+            # dedupeKey 기반 doc_id (없으면 url fallback)
+            dedup_key = p.get("dedupeKey")
+            if not dedup_key:
+                key = p.get("regNo") or p.get("url") or str(p.get("title", ""))
+                dedup_key = hashlib.sha256(key.encode()).hexdigest()[:16]
+
+            doc_ref = coll.document(dedup_key)
+
+            # 수동 검증된 문서는 핵심 수치 덮어쓰기 금지
+            existing = doc_ref.get()
+            if existing.exists and existing.to_dict().get("manualVerified"):
+                # sourceArticle만 추가
+                if p.get("sourceArticle"):
+                    doc_ref.set({"sourceArticles": ArrayUnion([p["sourceArticle"]]), "updatedAt": now}, merge=True)
+                continue
+
+            doc = {k: v for k, v in p.items() if v is not None and k != "sourceArticle"}
+            doc["savedAt"] = now
+            doc["updatedAt"] = now
+
+            # 기존 candidatesGeneral 보존
             if not doc.get("candidatesGeneral"):
                 doc.pop("candidatesGeneral", None)
             if not doc.get("candidatesParty"):
                 doc.pop("candidatesParty", None)
-            batch.set(coll.document(doc_id), doc, merge=True)
+
+            # sourceArticle → sourceArticles 배열에 추가
+            if p.get("sourceArticle"):
+                doc["sourceArticles"] = ArrayUnion([p["sourceArticle"]])
+
+            batch.set(doc_ref, doc, merge=True)
             n += 1
             if n % _BATCH_LIMIT == 0:
                 batch.commit()
                 batch = db.batch()
+
         if n % _BATCH_LIMIT:
             batch.commit()
-        logger.info("[store] polls {}건 저장", n)
+        logger.info("[store] polls {}건 저장 (dedupeKey 병합)", n)
 
     def save_report(self, target_id: str, report_id: str, report: dict) -> None:
         self._target_ref(target_id).collection("reports").document(report_id).set(report)
