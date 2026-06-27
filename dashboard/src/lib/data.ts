@@ -106,8 +106,31 @@ export function useReports() {
   return useCollection<Report>(["reports"], [orderBy("generatedAt", "desc"), fbLimit(60)]);
 }
 
+export type AuthorDoc = {
+  id: string;
+  name: string;
+  mainPlatform: string;
+  score: number;
+  postCount: number;
+  targetMentions: number;
+  totalViews?: number;
+  authorId?: string;
+  // 기존 단일 축 (하위호환)
+  tendency?: string;
+  faction?: string;
+  // 4축 분류
+  politicalAlignment?: string;
+  leeRelation?: string;
+  candidateRelation?: string;
+  mainFrames?: string[];
+  classificationConfidence?: "manual" | "auto" | "unknown";
+  needsReview?: boolean;
+  missingCollection?: boolean;
+  lastCollectedAt?: import("firebase/firestore").Timestamp | null;
+};
+
 export function useAuthors() {
-  return useCollection<{ id: string; name: string; mainPlatform: string; score: number; postCount: number; targetMentions: number; tendency?: string; totalViews?: number; authorId?: string }>(
+  return useCollection<AuthorDoc>(
     ["authors"],
     [orderBy("score", "desc"), fbLimit(100)]
   );
