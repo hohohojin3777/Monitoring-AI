@@ -9,20 +9,17 @@ on:
 jobs:
   engine-test:
     runs-on: ubuntu-latest
+    env:
+      PYTHONPATH: ${{ github.workspace }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
           cache: pip
-      - name: install deps
-        run: |
-          pip install -r engine/requirements.txt
-          pip install -e .
-      - name: run tests
-        run: |
-          python -m engine.tests.test_core
-          python -m engine.tests.test_pipeline_sim
+      - run: pip install -r engine/requirements.txt
+      - run: python -m engine.tests.test_core
+      - run: python -m engine.tests.test_pipeline_sim
 
   dashboard-build:
     runs-on: ubuntu-latest
