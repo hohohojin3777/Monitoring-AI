@@ -130,19 +130,131 @@ async def _fetch_article(client: httpx.AsyncClient, url: str) -> tuple[str, str]
 def _parse_title_meta(title: str) -> dict:
     """제목에서 매체명·기간 직접 파싱. 예: [천지일보 여론조사], [20260608-09]"""
     meta: dict = {}
-    # 대괄호 안 내용 추출
     brackets = re.findall(r'\[([^\]]+)\]', title)
     for b in brackets:
-        # 날짜 패턴: 20260608-09 또는 20260606-08
         date_m = re.match(r'(\d{4})(\d{2})(\d{2})-(\d{2})', b)
         if date_m:
             y, m, d1, d2 = date_m.groups()
             meta["pollPeriod"] = f"{y}-{m}-{d1}~{y}-{m}-{d2}"
             continue
-        # 여론조사 제외하고 매체명 추출
         clean = re.sub(r'여론조사|정기여론조사', '', b).strip()
         if clean and len(clean) >= 2:
             meta["media"] = clean
+    return meta
+
+
+# 알려진 여론조사 기관 목록
+_RESEARCH_FIRMS = (
+    "한국갤럽|리얼미터|한국리서치|엠브레인|케이스탯|NBS|KSOI|윈지코리아|"
+    "조원씨앤아이|리서치뷰|에이스리서치|피플네트웍스|미디어토마토|"
+    "PNR|글로벌리서치|코리아리서치|알앤써치|칸타|입소스|닐슨IQ"
+)
+_MEDIA_FIRMS = (
+    "KBS|MBC|SBS|YTN|JTBC|TV조선|채널A|MBN|연합뉴스|뉴시스|뉴스1|"
+    "조선일보|중앙일보|동아일보|한겨레|경향신문|오마이뉴스|프레시안|"
+    "문화일보|국민일보|서울신문|세계일보|한국일보|매일경제|한국경제|머니투데이|"
+    "헤럴드경제|아시아경제|이데일리|파이낸셜뉴스|뉴스토마토|"
+    "쿠키뉴스|노컷뉴스|CBS|TBS|OBS"
+)
+
+_POLLSTER_RE = re.compile(r"(" + _RESEARCH_FIRMS + r")", re.IGNORECASE)
+_MEDIA_RE    = re.compile(r"(" + _MEDIA_FIRMS + r")", re.IGNORECASE)
+
+# "의뢰" 앞뒤 20자 안에서 기관명 찾기
+_UIROE_RE = re.compile(r"(.{2,15}?)\s*(?:의뢰|위탁)")
+# "조사" 앞 15자 안에서 기관명 찾기 (조사기관이 앞에 오는 경우)
+_JOSA_BEFORE_RE = re.compile(r"([가-힣]{2,10}(?:리서치|미터|갤럽|조사|코리아|뷰|네트웍|데이터|토마토))\s*(?:가|이|에서|측이|측에서)?\s*조사")
+
+# 조사기간
+_PERIOD_RE2 = re.compile(
+    r"(\d{4})[.\-](\d{2})[.\-](\d{2})\s*[~\-]\s*(\d{4})[.\-](\d{2})[.\-](\d{2})"
+)
+_PERIOD_RE = re.compile(
+    r"(\d{4})년?\s*(\d{1,2})월?\s*(\d{1,2})일?\s*[~\-]\s*(?:\d{4}년?\s*\d{1,2}월?\s*)?(\d{1,2})일?"
+)
+# 표본수
+_SAMPLE_RE  = re.compile(r"(?:표본|유효\s*표본|응답자)[:\s]*(\d[\d,]+)\s*명")
+_SAMPLE_RE2 = re.compile(r"(\d[\d,]+)\s*명(?:을|을\s*대상|을\s*목표)")
+# 오차범위
+_MARGIN_RE = re.compile(r"오차\s*범위[^\d±]{0,5}([±＋\-\+]?\s*\d+\.?\d*\s*%p?)")
+# 표본대상
+_GROUP_RE  = re.compile(r"(?:조사\s*대상|응답\s*대상)[:\s는]*([^\n,·]{4,30})")
+# 조사방법
+_METHOD_RE = re.compile(r"(?:조사\s*방법|조사\s*방식)[:\s는]*([^\n,·]{2,20})")
+
+
+def _parse_body_meta(text: str) -> dict:
+    """기사 본문에서 조사기관·의뢰기관·기간·표본 등을 정규식으로 추출."""
+    meta: dict = {}
+    snippet = text[:3000]
+
+    # 1) 알려진 여론조사 기관명 직접 매칭 (가장 확실)
+    pm = _POLLSTER_RE.search(snippet)
+    if pm:
+        meta["pollster"] = pm.group(1)
+
+    # 2) "의뢰" 앞에 있는 기관명 → media
+    for m in _UIROE_RE.finditer(snippet):
+        candidate = m.group(1).strip()
+        # 리서치 기관이면 pollster, 아니면 media
+        if _POLLSTER_RE.search(candidate):
+            if not meta.get("pollster"):
+                meta["pollster"] = candidate
+        elif len(candidate) >= 2 and not any(c in candidate for c in ["조사", "결과", "따르면"]):
+            if not meta.get("media"):
+                meta["media"] = candidate
+
+    # 3) "○○리서치가 조사" 패턴 — pollster fallback
+    if not meta.get("pollster"):
+        mj = _JOSA_BEFORE_RE.search(snippet)
+        if mj:
+            meta["pollster"] = mj.group(1).strip()
+
+    # 4) 알려진 미디어 기관명 fallback
+    if not meta.get("media"):
+        mm = _MEDIA_RE.search(snippet)
+        if mm:
+            meta["media"] = mm.group(1)
+
+    # 5) 조사기간
+    m_p2 = _PERIOD_RE2.search(snippet)
+    if m_p2:
+        meta["pollPeriod"] = (
+            f"{m_p2.group(1)}-{m_p2.group(2)}-{m_p2.group(3)}"
+            f"~{m_p2.group(4)}-{m_p2.group(5)}-{m_p2.group(6)}"
+        )
+    else:
+        m_p = _PERIOD_RE.search(snippet)
+        if m_p:
+            y = m_p.group(1)
+            mon = m_p.group(2).zfill(2)
+            d1 = m_p.group(3).zfill(2)
+            d2 = m_p.group(4).zfill(2)
+            meta["pollPeriod"] = f"{y}-{mon}-{d1}~{y}-{mon}-{d2}"
+
+    # 6) 표본수
+    m_s = _SAMPLE_RE.search(snippet) or _SAMPLE_RE2.search(snippet)
+    if m_s:
+        try:
+            meta["sampleSize"] = int(m_s.group(1).replace(",", ""))
+        except ValueError:
+            pass
+
+    # 7) 오차범위
+    m_e = _MARGIN_RE.search(snippet)
+    if m_e:
+        meta["marginOfError"] = m_e.group(1).strip()
+
+    # 8) 조사대상
+    m_g = _GROUP_RE.search(snippet)
+    if m_g:
+        meta["sampleGroup"] = m_g.group(1).strip()
+
+    # 9) 조사방법
+    m_m = _METHOD_RE.search(snippet)
+    if m_m:
+        meta["surveyMethod"] = m_m.group(1).strip()
+
     return meta
 
 
@@ -259,14 +371,30 @@ async def collect_poll_news(since: datetime | None = None) -> list[dict]:
                     snippet_cands = [{"name": m.group(1), "pct": float(m.group(2))}
                                      for m in FULL_RE.finditer(f"{it.title} {it.content}")]
                     general = snippet_cands
-                # 여전히 없으면 GPT-4o-mini 파싱 (메타 포함)
-                if not general:
+
+                # 1순위: 본문 정규식으로 메타 파싱
+                body_meta = _parse_body_meta(text)
+                title_meta = _parse_title_meta(it.title)
+                # 제목 메타로 빈칸 보완
+                for k, v in title_meta.items():
+                    if v and not body_meta.get(k):
+                        body_meta[k] = v
+                it.__dict__["_body_meta"] = body_meta
+
+                # 2순위: 정규식으로 후보 수치·메타 못 얻은 경우만 GPT
+                needs_gpt = (not general) or (not body_meta.get("pollster") and not body_meta.get("pollPeriod"))
+                if needs_gpt:
                     gpt_result = await _gpt_parse_poll(it.title, text)
-                    general = gpt_result.get("general", [])
-                    party = gpt_result.get("party", party)
-                    if general:
-                        logger.info("[poll_gpt] GPT 파싱 성공: {} → {}건", it.title[:30], len(general))
+                    general = general or gpt_result.get("general", [])
+                    party = party or gpt_result.get("party", [])
+                    if gpt_result.get("general"):
+                        logger.info("[poll_gpt] GPT 파싱 성공: {} → {}건", it.title[:30], len(gpt_result["general"]))
+                    # GPT로 빈칸 보완 (정규식 우선)
+                    for k, v in gpt_result.items():
+                        if v and k not in ("general", "party") and not body_meta.get(k):
+                            body_meta[k] = v
                     it.__dict__["_gpt_meta"] = gpt_result
+
                 it.__dict__["_general"] = general
                 it.__dict__["_party"] = party
             if image:
@@ -279,9 +407,10 @@ async def collect_poll_news(since: datetime | None = None) -> list[dict]:
             for m in FULL_RE.finditer(f"{it.title} {it.content}")
         ]
         party = it.__dict__.get("_party", [])
-        meta = it.__dict__.get("_gpt_meta", {})
+        # 정규식 메타 우선, GPT로 보완된 값 사용
+        meta = it.__dict__.get("_body_meta") or it.__dict__.get("_gpt_meta") or {}
 
-        pollster   = meta.get("pollster") or ""
+        pollster    = meta.get("pollster") or ""
         poll_period = meta.get("pollPeriod") or ""
         sample_size = meta.get("sampleSize") or None
         sample_group = meta.get("sampleGroup") or ""
