@@ -19,6 +19,33 @@ jobs:
           python-version: "3.11"
           cache: pip
       - run: pip install -r requirements.txt
+      # 임포트 진단 — 실제 에러 위치 파악
+      - name: diagnose imports
+        working-directory: ..
+        run: |
+          python -c "
+          import traceback, sys
+          mods = [
+            'engine.analysis.cluster',
+            'engine.analysis.embed',
+            'engine.analysis.filters',
+            'engine.analysis.grade',
+            'engine.collectors.base',
+            'engine.config',
+            'engine.pipeline',
+            'engine.store.firestore',
+          ]
+          ok = True
+          for m in mods:
+            try:
+              __import__(m)
+              print('OK', m)
+            except Exception as e:
+              print('FAIL', m, ':', e)
+              traceback.print_exc()
+              ok = False
+          sys.exit(0 if ok else 1)
+          "
       - run: python -m engine.tests.test_core
         working-directory: ..
       - run: python -m engine.tests.test_pipeline_sim
