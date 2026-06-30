@@ -23,6 +23,7 @@ from .pipeline import run_target
 from .report import generate_report
 from .report_generator import generate_report as generate_briefing
 from .store import FirestoreStore
+from .strategy_analyzer import process_pending_requests, auto_generate as auto_generate_strategy
 
 
 async def _morning_briefing(store: FirestoreStore) -> None:
@@ -35,12 +36,24 @@ async def _morning_briefing(store: FirestoreStore) -> None:
             logger.error("[main] 브리핑 실패: {}", e)
 
 
+async def _process_strategy_memos(store: FirestoreStore) -> None:
+    for tid in store.list_target_ids():
+        try:
+            n = await process_pending_requests(tid)
+            if n:
+                logger.info("[main] 전략 메모 요청 처리: {}건 ({})", n, tid)
+            await auto_generate_strategy(tid)
+        except Exception as e:  # noqa: BLE001
+            logger.error("[main] '{}' 전략 메모 처리 실패: {}", tid, e)
+
+
 async def _collect_all_targets(store: FirestoreStore) -> None:
     for tid in store.list_target_ids():
         try:
             await run_target(tid, store)
         except Exception as e:  # noqa: BLE001
             logger.error("[main] target '{}' 실행 실패: {}", tid, e)
+    await _process_strategy_memos(store)
 
 
 def _daily_maintenance(store: FirestoreStore) -> None:
