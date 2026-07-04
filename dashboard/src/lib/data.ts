@@ -254,3 +254,16 @@ export async function recordLinkClick(clusterId: string, uid: string, displayNam
     { merge: true }
   );
 }
+
+export async function reclassifyCluster(
+  clusterId: string,
+  newSourceType: string,
+  previousSourceType?: string
+) {
+  await updateDoc(doc(base(), "clusters", clusterId), {
+    sourceType: newSourceType,
+    previousSourceType: previousSourceType ?? null,
+    reclassifiedAt: serverTimestamp(),
+    reclassifiedBy: "manual",
+  });
+}

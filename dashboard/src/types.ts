@@ -21,6 +21,15 @@ export interface ClusterStats {
   sentiment: { positive: number; neutral: number; negative: number; attack: number };
 }
 
+export type SourceType =
+  | "news" | "sns" | "community" | "video" | "official" | "blog_cafe" | "unknown";
+
+export type CommunityContentType =
+  | "original_post" | "comment" | "shared_news" | "unknown";
+
+export type VideoContentType =
+  | "youtube_video" | "youtube_shorts" | "youtube_live" | "youtube_comment" | "clip" | "unknown";
+
 export interface Cluster {
   id: string;
   title: string;
@@ -35,6 +44,16 @@ export interface Cluster {
   lastSeen?: Timestamp;
   latestPublishedAt?: Timestamp;
   stats?: ClusterStats;
+  // 소스 분류 (2단계 이후)
+  sourceType?: SourceType;
+  communityContentType?: CommunityContentType;
+  videoContentType?: VideoContentType;
+  // 대표 기사 (뉴스 클러스터)
+  latestArticleTitle?: string;
+  latestArticleUrl?: string;
+  representativeTitle?: string;
+  // 공식 탭
+  officialSource?: string;
 }
 
 export interface Item {
