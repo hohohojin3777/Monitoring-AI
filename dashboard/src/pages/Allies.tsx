@@ -1,19 +1,15 @@
 import { useMemo, useState } from "react";
 import { useClusters } from "../lib/data";
 import type { Cluster } from "../types";
+import { CANDIDATE_STYLES, MAIN_CANDIDATE_NAMES } from "../lib/candidates";
 
 // ── 후보 색상 ─────────────────────────────────────────────────
-const C = {
-  김민석: { hex: "#005BAC", text: "text-[#005BAC]", bar: "bg-[#005BAC]", border: "border-[#005BAC]", light: "bg-blue-50",   badge: "bg-blue-100 text-[#005BAC]" },
-  정청래: { hex: "#7950f2", text: "text-[#7950f2]", bar: "bg-[#7950f2]", border: "border-[#7950f2]", light: "bg-purple-50", badge: "bg-purple-100 text-purple-700" },
-  송영길: { hex: "#e6a817", text: "text-[#e6a817]", bar: "bg-[#e6a817]", border: "border-[#e6a817]", light: "bg-yellow-50", badge: "bg-yellow-100 text-yellow-700" },
-  김용민: { hex: "#6D5DF6", text: "text-[#6D5DF6]", bar: "bg-[#6D5DF6]", border: "border-[#6D5DF6]", light: "bg-indigo-50", badge: "bg-indigo-100 text-indigo-700" },
-} as const;
-type Cand = keyof typeof C;
-const CANDS: Cand[] = ["김민석", "정청래", "송영길", "김용민"];
+const C = CANDIDATE_STYLES;
+type Cand = string;
+const CANDS: Cand[] = MAIN_CANDIDATE_NAMES;
 
 // ── 알려진 지지 세력 ──────────────────────────────────────────
-const KNOWN: Record<Cand, { 의원: string[]; 유튜버: string[]; 단체: string[] }> = {
+const KNOWN: Record<string, { 의원: string[]; 유튜버: string[]; 단체: string[] }> = {
   김민석: {
     의원:  ["정성호", "전해철", "홍익표", "이원욱", "조응천", "최재성", "김영진", "강득구"],
     유튜버: ["이동형TV", "뷰리핑", "흑백여의도", "뉴스다이브"],
@@ -29,9 +25,9 @@ const KNOWN: Record<Cand, { 의원: string[]; 유튜버: string[]; 단체: strin
     유튜버: ["열린공감TV", "참세상"],
     단체:  ["송영길지지모임"],
   },
-  김용민: {
-    의원:  ["박은정", "김남국"],
-    유튜버: ["민트TV"],
+  고민정: {
+    의원:  [],
+    유튜버: [],
     단체:  [],
   },
 };

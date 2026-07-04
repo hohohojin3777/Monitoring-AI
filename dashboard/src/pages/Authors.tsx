@@ -1,14 +1,12 @@
 import { useMemo, useState } from "react";
 import { useAuthors, type AuthorDoc } from "../lib/data";
 import { Chip, platformLabel } from "../lib/ui";
+import { CANDIDATE_RELATION_FILTERS } from "../lib/candidates";
 
 // ── 분류 메타 ─────────────────────────────────────────────────
 const POLITICAL_ALIGNMENT = ["민주성향", "보수성향", "진보성향", "중도·불명"] as const;
 const LEE_RELATION        = ["친명", "반명", "비명", "친문", "확인 필요"] as const;
-const CANDIDATE_RELATION  = [
-  "친김민석", "반김민석", "친정청래", "반정청래",
-  "친송영길", "반송영길", "친김용민", "반김용민", "관망", "확인 필요",
-] as const;
+const CANDIDATE_RELATION  = CANDIDATE_RELATION_FILTERS;
 
 const ALIGN_CHIP: Record<string, string> = {
   "민주성향": "bg-blue-100 text-blue-700",
@@ -32,8 +30,8 @@ const CAND_CHIP: Record<string, string> = {
   "반정청래":  "bg-red-50 text-red-500",
   "친송영길":  "bg-yellow-100 text-yellow-700",
   "반송영길":  "bg-red-50 text-red-500",
-  "친김용민":  "bg-indigo-100 text-indigo-700",
-  "반김용민":  "bg-red-50 text-red-500",
+  "친고민정":  "bg-teal-100 text-teal-700",
+  "반고민정":  "bg-red-50 text-red-500",
   "관망":      "bg-gray-100 text-gray-500",
   "확인 필요": "bg-gray-100 text-gray-400",
 };

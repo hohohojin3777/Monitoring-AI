@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import { Link } from "react-router-dom";
 import { useClusters, useReports, usePolls, useAlerts } from "../lib/data";
 import { fmtDate } from "../lib/ui";
+import { MAIN_CANDIDATE_NAMES } from "../lib/candidates";
 
 // ── 유틸 ──────────────────────────────────────────────────────
 function dday(): number {
@@ -114,7 +115,7 @@ export default function Dashboard() {
   );
 
   // 최신 여론조사 (수치 있는 것만)
-  const CANDIDATES = ["정청래", "김민석", "송영길", "김용민"];
+  const CANDIDATES = MAIN_CANDIDATE_NAMES;
   const pollsWithData = useMemo(() => {
     return (allPolls as any[])
       .filter((p) => {
@@ -340,7 +341,7 @@ export default function Dashboard() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="bg-gray-50 border-b border-gray-100">
-                  {["조사일", "기관/매체", "조사대상", "김민석", "정청래", "송영길", "김용민", "1위", "원문"].map((h) => (
+                  {["조사일", "기관/매체", "조사대상", ...MAIN_CANDIDATE_NAMES, "1위", "원문"].map((h) => (
                     <th key={h} className="px-3 py-2.5 text-left text-xs font-semibold text-gray-500 whitespace-nowrap">
                       {h}
                     </th>
@@ -366,10 +367,9 @@ export default function Dashboard() {
                       <td className="px-3 py-2.5 text-xs text-gray-500 whitespace-nowrap">
                         {p.sampleGroup || p.respondents || "-"}
                       </td>
-                      <Pct val={get("김민석")} highlight />
-                      <Pct val={get("정청래")} />
-                      <Pct val={get("송영길")} />
-                      <Pct val={get("김용민")} />
+                      {MAIN_CANDIDATE_NAMES.map((name, i) => (
+                        <Pct key={name} val={get(name)} highlight={i === 0} />
+                      ))}
                       <td className="px-3 py-2.5 text-xs font-bold text-brand whitespace-nowrap">
                         {top?.name ?? "-"}
                       </td>

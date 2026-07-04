@@ -206,6 +206,17 @@ export async function cancelStrategyRequest(requestId: string) {
   await deleteDoc(doc(db, "targets", T, "strategyRequests", requestId));
 }
 
+/** 확인필요 poll → 확정으로 이동 */
+export async function confirmPoll(pollId: string, verificationStatus: "manual_verified" | "pdf_verified") {
+  const ref = doc(db, "targets", T, "polls", pollId);
+  await updateDoc(ref, {
+    needsReview: false,
+    verificationStatus,
+    manualVerified: true,
+    updatedAt: serverTimestamp(),
+  });
+}
+
 /** 여론조사 수동 저장/수정 — manualVerified=true 처리 */
 export async function savePollManual(pollId: string | null, data: Record<string, unknown>) {
   const ref = pollId

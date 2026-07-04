@@ -15,8 +15,9 @@ from loguru import logger
 
 from .config import get_settings
 from .store import FirestoreStore
+from .candidates import MAIN_CANDIDATE_NAMES
 
-CANDIDATES = ["김민석", "정청래", "송영길", "김용민"]
+CANDIDATES = MAIN_CANDIDATE_NAMES
 JEONDAE_DATE = datetime(2026, 8, 17, tzinfo=timezone.utc)
 
 
@@ -146,7 +147,7 @@ async def generate_weekly_report(target_id: str = "minju-jeondaehoe") -> str:
 
 | 후보 | 주요 행보 | 득점 요인 | 실점 요인 | 종합 평가 |
 |-----|---------|---------|---------|---------|
-(김민석·정청래·송영길·김용민 — 데이터 있는 후보만)
+(김민석·정청래·송영길·고민정 — 데이터 있는 후보만)
 
 ===SECTION5===
 ## 5. 다음 주 전략 과제
@@ -159,7 +160,7 @@ async def generate_weekly_report(target_id: str = "minju-jeondaehoe") -> str:
 ===SECTION6===
 ## 6. 여론조사 데이터 정리
 
-| 조사명 | 날짜 | 김민석 | 정청래 | 송영길 | 비고 |
+| 조사명 | 날짜 | 김민석 | 정청래 | 송영길 | 고민정 | 비고 |
 |-------|-----|-------|-------|-------|-----|
 (데이터 기반 정리)
 

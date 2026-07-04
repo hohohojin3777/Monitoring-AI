@@ -3,8 +3,17 @@ import { Link } from "react-router-dom";
 import { useClusters } from "../lib/data";
 import { Chip, GRADE_META, GradeDot, fmtDate } from "../lib/ui";
 import type { Cluster, FilterTag } from "../types";
+import { MAIN_CANDIDATE_NAMES } from "../lib/candidates";
 
 const FILTER_TABS: FilterTag[] = ["전체", "대응필요", "주의", "위기", "재발"];
+const CAND_TABS = ["전체", ...MAIN_CANDIDATE_NAMES] as const;
+type CandTab = typeof CAND_TABS[number];
+
+function matchesCandidate(c: Cluster, cand: CandTab): boolean {
+  if (cand === "전체") return true;
+  const text = `${c.title} ${c.summary ?? ""}`;
+  return text.includes(cand);
+}
 const SOURCE_TABS = ["SNS", "뉴스", "커뮤니티", "영상", "전체"] as const;
 type SourceTab = typeof SOURCE_TABS[number];
 
@@ -164,10 +173,15 @@ export default function Issues() {
   const { data, loading } = useClusters(sortBy);
   const [filterTab, setFilterTab] = useState<FilterTag>("전체");
   const [sourceTab, setSourceTab] = useState<SourceTab>("뉴스");
+  const [candTab, setCandTab] = useState<CandTab>("전체");
 
   const filtered = useMemo(() => {
-    return data.filter((c) => matchesFilter(c, filterTab) && matchesSource(c, sourceTab));
-  }, [data, filterTab, sourceTab]);
+    return data.filter((c) =>
+      matchesFilter(c, filterTab) &&
+      matchesSource(c, sourceTab) &&
+      matchesCandidate(c, candTab)
+    );
+  }, [data, filterTab, sourceTab, candTab]);
 
   const filterCounts = useMemo(
     () => Object.fromEntries(FILTER_TABS.map((t) => [t, data.filter((c) => matchesFilter(c, t)).length])),
@@ -176,6 +190,12 @@ export default function Issues() {
   const sourceCounts = useMemo(
     () => Object.fromEntries(
       SOURCE_TABS.map((s) => [s, data.filter((c) => matchesFilter(c, filterTab) && matchesSource(c, s)).length])
+    ),
+    [data, filterTab]
+  );
+  const candCounts = useMemo(
+    () => Object.fromEntries(
+      CAND_TABS.map((n) => [n, data.filter((c) => matchesFilter(c, filterTab) && matchesCandidate(c, n)).length])
     ),
     [data, filterTab]
   );
@@ -212,6 +232,24 @@ export default function Issues() {
             {t}
             <span className={`ml-1.5 text-xs ${filterTab === t ? "text-white/80" : "text-gray-400"}`}>
               {filterCounts[t] ?? 0}
+            </span>
+          </button>
+        ))}
+      </div>
+
+      {/* 후보 필터 */}
+      <div className="mb-3 flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
+        {CAND_TABS.map((n) => (
+          <button
+            key={n}
+            onClick={() => setCandTab(n)}
+            className={`shrink-0 rounded-full border px-3 py-1 text-xs font-semibold transition ${
+              candTab === n ? "border-brand bg-brand text-white" : "border-gray-200 bg-white text-gray-600 hover:border-gray-300"
+            }`}
+          >
+            {n}
+            <span className={`ml-1 ${candTab === n ? "text-white/70" : "text-gray-400"}`}>
+              {candCounts[n] ?? 0}
             </span>
           </button>
         ))}

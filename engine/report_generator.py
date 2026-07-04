@@ -125,10 +125,14 @@ def _build_data_prompt(data: dict, date_str: str, date_range: str, dday: int) ->
     top_clusters = [c for c in data["clusters"] if c["grade"] in ("red", "orange", "yellow")][:20]
     all_titles = [c["title"] for c in data["clusters"][:80]]
 
+    from .candidates import MAIN_CANDIDATE_NAMES
+    main_cands_str = "·".join(MAIN_CANDIDATE_NAMES)
+
     return f"""오늘 날짜: {date_str}
 대상 기간: {date_range}
 전당대회까지: D-{dday}
 사자성어: {_sajasung()}
+메인 당대표 후보군: {main_cands_str} (이 4명 중심으로 분석. 김용민은 메인 후보 아님)
 
 === 주요 이슈 클러스터 (red/orange/yellow 등급) ===
 {json.dumps(top_clusters, ensure_ascii=False, indent=2)}

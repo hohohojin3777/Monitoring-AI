@@ -1,4 +1,7 @@
+import { useEffect, useState } from "react";
 import { NavLink } from "react-router-dom";
+import { collection, onSnapshot } from "firebase/firestore";
+import { db, DEFAULT_TARGET } from "../firebase";
 import { useAuth } from "../auth";
 
 // 실무자용 메인 메뉴
@@ -45,6 +48,17 @@ function NavItem({ to, label, end }: { to: string; label: string; end?: boolean 
 export default function Layout({ children }: { children: React.ReactNode }) {
   const { user, role, logout } = useAuth();
   const isAdmin = role === "admin";
+  const [pendingCount, setPendingCount] = useState(0);
+
+  useEffect(() => {
+    if (!isAdmin) return;
+    const unsub = onSnapshot(
+      collection(db, "targets", DEFAULT_TARGET, "memberRequests"),
+      (snap) => setPendingCount(snap.size),
+      () => {}
+    );
+    return unsub;
+  }, [isAdmin]);
 
   return (
     <div className="min-h-screen bg-[#F4F6F8]">
@@ -110,7 +124,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                     key={n.to}
                     to={n.to}
                     className={({ isActive }) =>
-                      `shrink-0 whitespace-nowrap rounded-t px-2.5 py-2 text-xs transition ${
+                      `relative shrink-0 whitespace-nowrap rounded-t px-2.5 py-2 text-xs transition ${
                         isActive
                           ? "bg-brand/80 text-white"
                           : "text-gray-400 hover:text-gray-200"
@@ -118,6 +132,11 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                     }
                   >
                     {n.label}
+                    {n.to === "/members" && pendingCount > 0 && (
+                      <span className="absolute -top-1 -right-1 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white leading-none">
+                        {pendingCount}
+                      </span>
+                    )}
                   </NavLink>
                 ))}
               </>

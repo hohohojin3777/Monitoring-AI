@@ -2,14 +2,16 @@ import { useMemo, useRef, useState, Fragment } from "react";
 import { collection, addDoc, serverTimestamp } from "firebase/firestore";
 import { db, DEFAULT_TARGET } from "../firebase";
 import { usePolls } from "../lib/data";
+import {
+  MAIN_CANDIDATE_NAMES,
+  ALL_CANDIDATE_NAMES,
+  CANDIDATE_COLORS,
+} from "../lib/candidates";
 
-const CANDIDATES_ORDER = ["김민석", "정청래", "송영길", "김용민"];
-const CANDIDATES_ALL   = ["정청래", "김민석", "송영길", "김용민", "김두관", "강훈식"];
+const CANDIDATES_ORDER = MAIN_CANDIDATE_NAMES;
+const CANDIDATES_ALL   = ALL_CANDIDATE_NAMES;
 
-const COLORS: Record<string, string> = {
-  정청래: "#7950f2", 김민석: "#005BAC",
-  송영길: "#e6a817", 김용민: "#6D5DF6", 김두관: "#0c8599", 강훈식: "#d6336c",
-};
+const COLORS: Record<string, string> = CANDIDATE_COLORS;
 const DEFAULT_COLOR = "#9ca3af";
 
 // ── Poll master 타입 ───────────────────────────────────────────
@@ -17,6 +19,7 @@ type Poll = {
   id: string;
   // poll master 필드
   surveyType?: string;
+  reviewNote?: string;
   pollster?: string;
   sponsor?: string;           // 의뢰/보도 매체 (뉴스토마토 등)
   media?: string;             // 구버전 호환
@@ -97,8 +100,8 @@ function buildSeries(polls: Poll[], getCands: (p: Poll) => { name: string; pct: 
   return { dates, active, series };
 }
 
-function TrendChart({ polls, title, getCands }: {
-  polls: Poll[]; title: string; getCands: (p: Poll) => { name: string; pct: number }[];
+function TrendChart({ polls, title, subtitle, getCands }: {
+  polls: Poll[]; title: string; subtitle?: string; getCands: (p: Poll) => { name: string; pct: number }[];
 }) {
   const svgRef = useRef<SVGSVGElement>(null);
   const [hoverIdx, setHoverIdx] = useState<number | null>(null);
@@ -131,7 +134,8 @@ function TrendChart({ polls, title, getCands }: {
 
   return (
     <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
-      <p className="text-sm font-bold text-gray-700 mb-3">{title}</p>
+      <p className="text-sm font-bold text-gray-700 mb-0.5">{title}</p>
+      {subtitle && <p className="text-[10px] text-gray-400 mb-2">{subtitle}</p>}
       <div className="overflow-x-auto">
         <svg ref={svgRef} width={W} height={H + 40} className="cursor-crosshair select-none"
           onMouseMove={handleMouseMove} onMouseLeave={() => setHoverIdx(null)}>
@@ -205,7 +209,7 @@ function PollTable({ polls }: { polls: Poll[] }) {
 
   const HEADERS = [
     "조사기간", "조사기관", "의뢰·보도매체", "조사대상", "표본", "오차범위",
-    "김민석", "정청래", "송영길", "김용민", "1위", "원문기사", "상태",
+    ...CANDIDATES_ORDER, "1위", "상세", "상태",
   ];
 
   return (
@@ -222,11 +226,13 @@ function PollTable({ polls }: { polls: Poll[] }) {
           <tbody className="divide-y divide-gray-100">
             {polls.map((p) => {
               const cands = getGeneralCands(p);
+              const partyCands = getPartyCands(p);
+              const runoffCands: { name: string; pct: number }[] = (p as any).candidatesRunoff ?? [];
               const get = (name: string) => cands.find((c) => c.name === name)?.pct;
               const top = [...cands].filter((c) => CANDIDATES_ALL.includes(c.name)).sort((a, b) => b.pct - a.pct)[0];
               const kim = get("김민석");
               const isExpanded = expanded.has(p.id);
-              // sourceArticles 없으면 url 단일 기사로 fallback
+              const hasExtra = partyCands.length > 0 || runoffCands.length > 0;
               const articles = p.sourceArticles?.length
                 ? p.sourceArticles
                 : p.url ? [{ title: p.title ?? "", url: p.url }] : [];
@@ -249,7 +255,7 @@ function PollTable({ polls }: { polls: Poll[] }) {
                       {getSponsor(p) || <span className="text-gray-300">-</span>}
                     </td>
                     <td className="px-3 py-2.5 text-xs text-gray-400 max-w-[140px] truncate">
-                      {p.sampleGroup || "-"}
+                      {p.sampleGroup || <span className="text-gray-300">전국 유권자</span>}
                     </td>
                     <td className="px-3 py-2.5 text-xs text-gray-400 whitespace-nowrap">
                       {p.sampleSize ? `${p.sampleSize.toLocaleString()}명` : "-"}
@@ -260,7 +266,7 @@ function PollTable({ polls }: { polls: Poll[] }) {
                     <td className={`px-3 py-2.5 text-sm font-black whitespace-nowrap ${kim !== undefined ? "text-brand" : "text-gray-300"}`}>
                       {kim !== undefined ? `${kim}%` : "-"}
                     </td>
-                    {["정청래", "송영길", "김용민"].map((name) => {
+                    {CANDIDATES_ORDER.filter((n) => n !== "김민석").map((name) => {
                       const val = get(name);
                       return (
                         <td key={name} className="px-3 py-2.5 text-xs text-gray-600 whitespace-nowrap">
@@ -274,10 +280,10 @@ function PollTable({ polls }: { polls: Poll[] }) {
                       {top && <span className="ml-1 text-gray-400 font-normal">({top.pct}%)</span>}
                     </td>
                     <td className="px-3 py-2.5">
-                      {articles.length > 0 ? (
+                      {(hasExtra || articles.length > 0) ? (
                         <button onClick={() => toggle(p.id)}
                           className="text-xs text-brand hover:underline whitespace-nowrap">
-                          원문 {articles.length}건 {isExpanded ? "▲" : "▼"}
+                          {isExpanded ? "접기 ▲" : `상세 ▼`}
                         </button>
                       ) : <span className="text-xs text-gray-300">-</span>}
                     </td>
@@ -289,24 +295,80 @@ function PollTable({ polls }: { polls: Poll[] }) {
                         : <span className="text-gray-300">-</span>}
                     </td>
                   </tr>
-                  {isExpanded && articles.length > 0 && (
-                    <tr className="bg-blue-50">
-                      <td colSpan={HEADERS.length} className="px-6 py-3">
-                        <div className="text-xs font-bold text-gray-500 mb-1.5">원문 기사 {articles.length}건</div>
-                        <div className="space-y-1">
-                          {articles.map((a, i) => (
-                            <div key={i} className="flex items-center gap-2">
-                              <a href={a.url} target="_blank" rel="noreferrer"
-                                className="text-xs text-brand hover:underline truncate max-w-xl">
-                                {a.title || a.url}
-                              </a>
-                              <span className="text-xs text-gray-400 shrink-0">
-                                {typeof a.publishedAt === "string"
-                                  ? a.publishedAt.slice(0, 10)
-                                  : a.publishedAt?.toDate?.()?.toISOString?.()?.slice(0, 10) ?? ""}
-                              </span>
+                  {isExpanded && (
+                    <tr className="bg-blue-50/60">
+                      <td colSpan={HEADERS.length} className="px-6 py-4">
+                        <div className="space-y-3">
+                          {/* 기타 후보 수치 (메인 컬럼 제외 후보 — 김용민 등 과거 데이터 보존) */}
+                          {(() => {
+                            const otherCands = cands.filter((c) => !CANDIDATES_ORDER.includes(c.name));
+                            return otherCands.length > 0 ? (
+                              <div>
+                                <p className="text-[11px] font-bold text-gray-400 mb-1">기타 후보 (전체 유권자)</p>
+                                <div className="flex flex-wrap gap-3">
+                                  {otherCands.map((c) => (
+                                    <span key={c.name} className="text-xs text-gray-500" style={{ color: COLORS[c.name] ?? DEFAULT_COLOR }}>
+                                      {c.name} {c.pct}%
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+                            ) : null;
+                          })()}
+                          {/* 민주당 지지층 */}
+                          {partyCands.length > 0 && (
+                            <div>
+                              <p className="text-[11px] font-bold text-purple-700 mb-1">민주당 지지층 기준</p>
+                              <div className="flex flex-wrap gap-3">
+                                {[...partyCands].sort((a, b) => b.pct - a.pct).map((c) => (
+                                  <span key={c.name} className="text-xs font-semibold" style={{ color: COLORS[c.name] ?? DEFAULT_COLOR }}>
+                                    {c.name} {c.pct}%
+                                  </span>
+                                ))}
+                              </div>
                             </div>
-                          ))}
+                          )}
+                          {/* 양자대결 */}
+                          {runoffCands.length > 0 && (
+                            <div>
+                              <p className="text-[11px] font-bold text-gray-500 mb-1">양자대결 (전체 유권자)</p>
+                              <div className="flex flex-wrap gap-3">
+                                {[...runoffCands].sort((a, b) => b.pct - a.pct).map((c) => (
+                                  <span key={c.name} className="text-xs font-semibold" style={{ color: COLORS[c.name] ?? DEFAULT_COLOR }}>
+                                    {c.name} {c.pct}%
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                          {/* 확인필요 메모 */}
+                          {p.reviewNote && (
+                            <div>
+                              <p className="text-[11px] font-bold text-yellow-700 mb-1">⚠ 확인필요</p>
+                              <p className="text-xs text-yellow-700">{p.reviewNote}</p>
+                            </div>
+                          )}
+                          {/* 원문 기사 */}
+                          {articles.length > 0 && (
+                            <div>
+                              <p className="text-[11px] font-bold text-gray-500 mb-1">원문 기사 {articles.length}건</p>
+                              <div className="space-y-1">
+                                {articles.map((a, i) => (
+                                  <div key={i} className="flex items-center gap-2">
+                                    <a href={a.url} target="_blank" rel="noreferrer"
+                                      className="text-xs text-brand hover:underline truncate max-w-xl">
+                                      {a.title || a.url}
+                                    </a>
+                                    <span className="text-xs text-gray-400 shrink-0">
+                                      {typeof a.publishedAt === "string"
+                                        ? a.publishedAt.slice(0, 10)
+                                        : a.publishedAt?.toDate?.()?.toISOString?.()?.slice(0, 10) ?? ""}
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -385,7 +447,7 @@ function ManualPollForm({ editPoll, onClose }: { editPoll?: Poll; onClose: () =>
     kim: getGeneralCands(editPoll ?? {} as Poll).find((c) => c.name === "김민석")?.pct?.toString() ?? "",
     jcr: getGeneralCands(editPoll ?? {} as Poll).find((c) => c.name === "정청래")?.pct?.toString() ?? "",
     syg: getGeneralCands(editPoll ?? {} as Poll).find((c) => c.name === "송영길")?.pct?.toString() ?? "",
-    kym: getGeneralCands(editPoll ?? {} as Poll).find((c) => c.name === "김용민")?.pct?.toString() ?? "",
+    gmj: getGeneralCands(editPoll ?? {} as Poll).find((c) => c.name === "고민정")?.pct?.toString() ?? "",
     url: editPoll?.url ?? "",
   });
 
@@ -401,7 +463,7 @@ function ManualPollForm({ editPoll, onClose }: { editPoll?: Poll; onClose: () =>
         { name: "김민석", pct: parseFloat(form.kim) },
         { name: "정청래", pct: parseFloat(form.jcr) },
         { name: "송영길", pct: parseFloat(form.syg) },
-        { name: "김용민", pct: parseFloat(form.kym) },
+        { name: "고민정", pct: parseFloat(form.gmj) },
       ].filter((c) => !isNaN(c.pct));
 
       const top = candidatesGeneral.length
@@ -463,7 +525,7 @@ function ManualPollForm({ editPoll, onClose }: { editPoll?: Poll; onClose: () =>
         <div><p className={labelCls}>김민석 (%)</p><input className={inputCls} type="number" step="0.1" value={form.kim} onChange={(e) => set("kim", e.target.value)} /></div>
         <div><p className={labelCls}>정청래 (%)</p><input className={inputCls} type="number" step="0.1" value={form.jcr} onChange={(e) => set("jcr", e.target.value)} /></div>
         <div><p className={labelCls}>송영길 (%)</p><input className={inputCls} type="number" step="0.1" value={form.syg} onChange={(e) => set("syg", e.target.value)} /></div>
-        <div><p className={labelCls}>김용민 (%)</p><input className={inputCls} type="number" step="0.1" value={form.kym} onChange={(e) => set("kym", e.target.value)} /></div>
+        <div><p className={labelCls}>고민정 (%)</p><input className={inputCls} type="number" step="0.1" value={form.gmj} onChange={(e) => set("gmj", e.target.value)} /></div>
       </div>
       <div><p className={labelCls}>원문 URL</p><input className={inputCls} value={form.url} onChange={(e) => set("url", e.target.value)} placeholder="https://..." /></div>
       <p className="text-xs text-gray-400">수동 입력은 manualVerified=true로 표시되며 자동 추출로 덮어쓰이지 않습니다.</p>
@@ -474,6 +536,39 @@ function ManualPollForm({ editPoll, onClose }: { editPoll?: Poll; onClose: () =>
         </button>
         <button onClick={onClose} className="rounded-lg border border-gray-200 px-4 py-2 text-sm text-gray-600 hover:bg-gray-50">취소</button>
       </div>
+    </div>
+  );
+}
+
+// ── 확인필요 → 확정 이동 행 ────────────────────────────────────
+function ConfirmPollRow({ poll }: { poll: Poll }) {
+  const [loading, setLoading] = useState(false);
+
+  async function handle(status: "manual_verified" | "pdf_verified") {
+    if (!confirm(`"${getPollster(poll) || poll.id}" 조사를 확정 처리하겠습니까?`)) return;
+    setLoading(true);
+    try {
+      const { confirmPoll } = await import("../lib/data");
+      await confirmPoll(poll.id, status);
+    } catch (e) {
+      alert("처리 실패: " + e);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const label = `${getPollster(poll) || "-"} ${poll.pollPeriod || poll.pollStartDate || ""}`;
+  return (
+    <div className="flex items-center gap-3 rounded-lg border border-yellow-200 bg-white px-3 py-2">
+      <span className="flex-1 text-xs text-gray-700 font-medium truncate">{label}</span>
+      <button onClick={() => handle("manual_verified")} disabled={loading}
+        className="rounded px-2.5 py-1 text-xs font-bold bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-40 whitespace-nowrap">
+        수동 확인 후 확정
+      </button>
+      <button onClick={() => handle("pdf_verified")} disabled={loading}
+        className="rounded px-2.5 py-1 text-xs font-bold bg-green-600 text-white hover:bg-green-700 disabled:opacity-40 whitespace-nowrap">
+        PDF 확인 후 확정
+      </button>
     </div>
   );
 }
@@ -498,21 +593,54 @@ export default function Polls() {
   const [showManualForm, setShowManualForm] = useState(false);
   const [showUrlBox, setShowUrlBox] = useState(false);
 
-  // poll master만 표시: archived/mergedInto 제거, hasData 우선 정렬
-  const polls: Poll[] = useMemo(() => {
-    return (allPolls as Poll[])
-      .filter((p) => {
-        if (p.archived || p.mergedInto) return false;
-        const cands = getGeneralCands(p);
-        return cands.some((c) => CANDIDATES_ALL.includes(c.name));
-      })
-      .sort((a, b) => dateOf(b).localeCompare(dateOf(a)));
+  // 활성 poll 전체 (archived/mergedInto 제외) → dedup → 최신순
+  const allActive: Poll[] = useMemo(() => {
+    const filtered = (allPolls as Poll[]).filter((p) => {
+      if (p.archived || p.mergedInto) return false;
+      // 후보 수치가 하나라도 있거나 needsReview인 것 포함
+      const cands = getGeneralCands(p);
+      const partyCands = getPartyCands(p);
+      const hasAnyCand = [...cands, ...partyCands].some((c) => CANDIDATES_ALL.includes(c.name));
+      return hasAnyCand || p.needsReview;
+    });
+
+    const seen = new Map<string, Poll>();
+    for (const p of filtered) {
+      const pollster = getPollster(p);
+      const period = p.pollPeriod || `${p.pollStartDate ?? ""}~${p.pollEndDate ?? ""}`;
+      const key = p.dedupeKey || `${pollster}|${period}`;
+      const prev = seen.get(key);
+      if (!prev) {
+        seen.set(key, p);
+      } else {
+        const prevCands = getGeneralCands(prev).length;
+        const currCands = getGeneralCands(p).length;
+        if (currCands > prevCands || (currCands === prevCands && (p.sampleSize ?? 0) > (prev.sampleSize ?? 0))) {
+          seen.set(key, p);
+        }
+      }
+    }
+    return Array.from(seen.values()).sort((a, b) => dateOf(b).localeCompare(dateOf(a)));
   }, [allPolls]);
 
-  // 최신 김민석 지지율
-  const latestKim = useMemo(() => {
+  // 확정 poll: needsReview 아닌 것
+  const polls = useMemo(() => allActive.filter((p) => !p.needsReview), [allActive]);
+  // 확인필요 poll
+  const reviewPolls = useMemo(() => allActive.filter((p) => p.needsReview), [allActive]);
+
+  // 최신 김민석 지지율 (전체유권자 기준)
+  const latestKimOverall = useMemo(() => {
     for (const p of polls) {
       const found = getGeneralCands(p).find((c) => c.name === "김민석");
+      if (found) return { pct: found.pct, date: dateOf(p), org: getPollster(p) };
+    }
+    return null;
+  }, [polls]);
+
+  // 최신 김민석 지지율 (민주당 지지층 기준)
+  const latestKimParty = useMemo(() => {
+    for (const p of polls) {
+      const found = getPartyCands(p).find((c) => c.name === "김민석");
       if (found) return { pct: found.pct, date: dateOf(p), org: getPollster(p) };
     }
     return null;
@@ -549,26 +677,21 @@ export default function Polls() {
       {/* KPI 카드 */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <KpiCard
-          label="최근 김민석 지지율"
-          value={latestKim ? `${latestKim.pct}%` : "-"}
-          sub={latestKim ? `${latestKim.date} · ${latestKim.org}` : "데이터 없음"}
-          color={latestKim ? "text-brand" : "text-gray-400"}
+          label="김민석 최신 (전체 유권자)"
+          value={latestKimOverall ? `${latestKimOverall.pct}%` : "-"}
+          sub={latestKimOverall ? `${latestKimOverall.date} · ${latestKimOverall.org}` : "데이터 없음"}
+          color={latestKimOverall ? "text-brand" : "text-gray-400"}
         />
         <KpiCard
-          label="최근 조사 1위"
-          value={(() => {
-            const top = polls[0]
-              ? [...getGeneralCands(polls[0])].sort((a, b) => b.pct - a.pct)[0]
-              : null;
-            return top ? `${top.name} ${top.pct}%` : "-";
-          })()}
-          sub={polls[0] ? getPollster(polls[0]) : ""}
-          color="text-navy"
+          label="김민석 최신 (민주당 지지층)"
+          value={latestKimParty ? `${latestKimParty.pct}%` : "-"}
+          sub={latestKimParty ? `${latestKimParty.date} · ${latestKimParty.org}` : "데이터 없음"}
+          color={latestKimParty ? "text-brand" : "text-gray-400"}
         />
         <KpiCard
-          label="총 여론조사 수"
+          label="확정 여론조사"
           value={`${polls.length}건`}
-          sub="poll master 기준"
+          sub={reviewPolls.length > 0 ? `확인필요 ${reviewPolls.length}건 별도 관리` : "5월 이후 poll master 기준"}
           color="text-navy"
         />
         <KpiCard
@@ -593,7 +716,7 @@ export default function Polls() {
           }`}>
           카드 보기
         </button>
-        <span className="ml-auto text-sm text-gray-400">{polls.length}건</span>
+        <span className="ml-auto text-sm text-gray-400">확정 {polls.length}건{reviewPolls.length > 0 ? ` · 확인필요 ${reviewPolls.length}건` : ""}</span>
       </div>
 
       {loading ? (
@@ -604,10 +727,27 @@ export default function Polls() {
         <>
           <PollTable polls={polls} />
           <p className="text-xs text-gray-400 text-center">
-            * 같은 조사를 다룬 여러 기사는 "원문 N건"으로 묶입니다. 대통령 지지율 조사는 제외됩니다.
+            * 같은 조사를 다룬 여러 기사는 "상세"로 묶입니다. 대통령 지지율 조사는 제외됩니다.
           </p>
-          <TrendChart polls={polls} title="📈 김민석 지지율 추이 (일반여론조사)" getCands={getGeneralCands} />
-          <TrendChart polls={polls} title="📈 민주당 지지층 기준 지지율 추이" getCands={getPartyCands} />
+
+          {/* 확인필요 섹션 */}
+          {reviewPolls.length > 0 && (
+            <div className="rounded-xl border border-yellow-200 bg-yellow-50/50 p-4 space-y-3">
+              <div>
+                <p className="text-sm font-bold text-yellow-800">확인필요 poll master — {reviewPolls.length}건</p>
+                <p className="text-xs text-yellow-700 mt-0.5">조사기관·수치 원문 미확인. 원문/PDF 확인 후 아래 버튼으로 확정 표로 이동.</p>
+              </div>
+              <PollTable polls={reviewPolls} />
+              <div className="space-y-2">
+                {reviewPolls.map((p) => (
+                  <ConfirmPollRow key={p.id} poll={p} />
+                ))}
+              </div>
+            </div>
+          )}
+
+          <TrendChart polls={polls} title="📈 김민석 지지율 추이 (일반여론조사)" getCands={getGeneralCands} subtitle="확정 poll master 기준 · 일반 국민 다자·3자 기준 · 확인필요 조사 제외" />
+          <TrendChart polls={polls} title="📈 민주당 지지층 기준 지지율 추이" getCands={getPartyCands} subtitle="확정 poll master 기준 · 민주당 지지층 다자 기준 · 확인필요 조사 제외" />
         </>
       ) : (
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">

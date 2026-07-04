@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { useKeywordTrend } from "../lib/data";
+import { ALL_CANDIDATE_NAMES } from "../lib/candidates";
 
 // ── 불용어 목록 (UI 필터) ──────────────────────────────────────
 const STOPWORDS = new Set([
@@ -33,8 +34,8 @@ const WEIGHTED_KEYWORDS: Record<string, string> = {
   전국당원대회: "core", 예비경선: "core", 컷오프: "core", 결선투표: "core",
   지도부: "core", 당권: "core", 출마: "core", 지지선언: "core", 시도당: "core",
   지역위원장: "core",
-  // 후보별
-  김민석: "candidate", 정청래: "candidate", 송영길: "candidate", 김용민: "candidate",
+  // 후보별 (candidates.ts에서 자동 생성)
+  ...Object.fromEntries(ALL_CANDIDATE_NAMES.map((n) => [n, "candidate"])),
   // 프레임
   책임론: "frame", 쇄신론: "frame", 통합론: "frame", 안정론: "frame", 개혁론: "frame",
   당정관계: "frame", 친명: "frame", 강성당원: "frame", 검찰개혁: "frame",

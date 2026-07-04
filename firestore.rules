@@ -30,6 +30,12 @@ service cloud.firestore {
         allow write: if isAdmin(tid);
       }
 
+      // 가입 신청: 로그인한 본인 uid로만 생성 가능, 읽기/삭제는 관리자
+      match /memberRequests/{uid} {
+        allow create: if signedIn() && request.auth.uid == uid;
+        allow read, delete: if isAdmin(tid);
+      }
+
       // 엔진이 쓰는 읽기전용 컬렉션 (Admin SDK 는 규칙 우회)
       match /items/{doc}        { allow read: if isMember(tid); allow write: if false; }
       match /alerts/{doc}       { allow read: if isMember(tid); allow write: if false; }

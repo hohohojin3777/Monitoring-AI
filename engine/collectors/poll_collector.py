@@ -16,8 +16,9 @@ from typing import Optional
 import httpx
 from bs4 import BeautifulSoup
 from loguru import logger
+from ..candidates import ALL_CANDIDATE_NAMES
 
-CANDIDATES = ["정청래", "김민석", "송영길", "김용민", "김두관", "강훈식"]
+CANDIDATES = ALL_CANDIDATE_NAMES
 
 # ── 조사기관 정규화 ────────────────────────────────────────────
 # 미디어토마토=조사기관, 뉴스토마토=의뢰/보도매체 (계열사 관계)
@@ -66,7 +67,7 @@ ABBREV: dict[tuple[str, str], str] = {
     ("정", "의원"):   "정청래",
     ("송", "의원"):   "송영길",
     ("송", "전대표"): "송영길",
-    ("김", "의원"):   "김용민",
+    ("고", "의원"):   "고민정",
     ("강", "의원"):   "강훈식",
 }
 ABBREV_RE = re.compile(
@@ -342,7 +343,7 @@ async def _gpt_parse_poll(title: str, text: str) -> dict:
                     "role": "system",
                     "content": (
                         "다음 기사에서 더불어민주당 전당대회 당대표 여론조사 정보를 추출하라.\n"
-                        "후보: 정청래, 김민석, 송영길, 김용민, 김두관, 강훈식\n"
+                        f"후보: {', '.join(CANDIDATES)}\n"
                         "중요: 대통령 지지율/국정지지율 조사는 isPollArticle=false로 처리.\n"
                         "결과는 반드시 JSON만 출력. 형식:\n"
                         "{\n"
