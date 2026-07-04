@@ -60,6 +60,19 @@ class RawItem:
     keyword: str = ""           # 매칭된 검색 키워드
     image_url: str = ""         # og:image 등 대표 이미지 URL
     raw: dict[str, Any] = field(default_factory=dict)       # 원본 응답 일부(디버깅)
+    # ── 커뮤니티 세분류 필드 (sourceType=community 전용) ──
+    community_content_type: str = ""     # original_post | comment | shared_news | unknown
+    board_name: str = ""                 # 게시판명
+    community_name: str = ""            # 커뮤니티명
+    post_id: str = ""                   # 게시글 고유 ID
+    parent_post_id: str = ""            # 댓글인 경우 부모 글 ID
+    parent_url: str = ""                # 댓글인 경우 부모 글 URL
+    comment_id: str = ""                # 댓글 고유 ID
+    shared_url: str = ""                # 공유된 외부 URL (shared_news용)
+    article_url: str = ""               # 본문 내 뉴스 기사 URL
+    detected_links: list[str] = field(default_factory=list)  # 본문에서 감지된 링크 목록
+    classification_confidence: float = 0.0   # 분류 신뢰도 (0~1)
+    classification_reason: str = ""     # 분류 근거
 
     # ── 파이프라인이 채우는 주석 필드 (수집 시점엔 비어있음) ──
     matched_entities: list[str] = field(default_factory=list)

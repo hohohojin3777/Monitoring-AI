@@ -267,3 +267,16 @@ export async function reclassifyCluster(
     reclassifiedBy: "manual",
   });
 }
+
+export async function updateCommunityContentType(
+  clusterId: string,
+  newType: string,
+  previousType?: string
+) {
+  await updateDoc(doc(base(), "clusters", clusterId), {
+    communityContentType: newType,
+    previousCommunityContentType: previousType ?? null,
+    reclassifiedAt: serverTimestamp(),
+    reclassifiedBy: "manual",
+  });
+}

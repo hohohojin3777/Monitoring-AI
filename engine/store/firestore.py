@@ -403,6 +403,19 @@ def _item_doc(it: RawItem) -> dict:
         "rejectReason": it.reject_reason,
         "imageUrl": it.image_url or "",
         "eventKey": it.event_key or "",
+        # 커뮤니티 세분류 (sourceType=community 전용, 나머지는 빈 값)
+        "communityContentType": it.community_content_type or "",
+        "boardName": it.board_name or "",
+        "communityName": it.community_name or "",
+        "postId": it.post_id or "",
+        "parentPostId": it.parent_post_id or "",
+        "parentUrl": it.parent_url or "",
+        "commentId": it.comment_id or "",
+        "sharedUrl": it.shared_url or "",
+        "articleUrl": it.article_url or "",
+        "detectedLinks": it.detected_links or [],
+        "classificationConfidence": it.classification_confidence or 0.0,
+        "classificationReason": it.classification_reason or "",
     }
 
 

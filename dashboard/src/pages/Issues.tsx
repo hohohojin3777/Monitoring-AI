@@ -1,15 +1,28 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useClusters } from "../lib/data";
-import { reclassifyCluster } from "../lib/data";
+import { reclassifyCluster, updateCommunityContentType } from "../lib/data";
 import { Chip, GRADE_META, GradeDot, fmtDate } from "../lib/ui";
-import type { Cluster, FilterTag, SourceType } from "../types";
+import type { Cluster, FilterTag, SourceType, CommunityContentType } from "../types";
 import { MAIN_CANDIDATE_NAMES } from "../lib/candidates";
 
 // ── 탭 정의 ──────────────────────────────────────────────────────
 const FILTER_TABS: FilterTag[] = ["전체", "대응필요", "주의", "위기", "재발"];
 const SOURCE_TABS = ["전체", "뉴스", "SNS", "커뮤니티", "영상", "공식", "확인필요"] as const;
 type SourceTab = typeof SOURCE_TABS[number];
+
+// 커뮤니티 내부 필터
+const COMMUNITY_SUB_TABS = ["원글", "댓글", "뉴스공유", "전체", "확인필요"] as const;
+type CommunitySubTab = typeof COMMUNITY_SUB_TABS[number];
+const COMMUNITY_CONTENT_TYPE_LABEL: Record<CommunityContentType, string> = {
+  original_post: "원글", comment: "댓글", shared_news: "뉴스공유", unknown: "확인필요",
+};
+const COMMUNITY_CONTENT_TYPE_BADGE: Record<CommunityContentType, string> = {
+  original_post: "bg-green-100 text-green-700",
+  comment: "bg-blue-100 text-blue-700",
+  shared_news: "bg-yellow-100 text-yellow-700",
+  unknown: "bg-amber-100 text-amber-600",
+};
 
 const CAND_TABS = ["전체", ...MAIN_CANDIDATE_NAMES] as const;
 type CandTab = typeof CAND_TABS[number];
@@ -59,6 +72,8 @@ function needsReview(c: Cluster): boolean {
   // 낮은 병합 신뢰도
   if ((c.clusterConfidence ?? 1.0) < 0.75) return true;
   if (c.sourceType === "unknown") return true;
+  // 커뮤니티 글인데 communityContentType 판단 불가
+  if (c.sourceType === "community" && c.communityContentType === "unknown") return true;
   const platforms = c.stats?.platforms ?? [];
   if (platforms.length === 0) return !c.sourceType;
   const hasNews = platforms.some((p) => NEWS_PLATFORMS.has(p));
@@ -84,6 +99,7 @@ function reviewReason(c: Cluster): string {
   const conf = c.clusterConfidence ?? 1.0;
   if (conf < 0.50) return `병합 신뢰도 매우 낮음 (${conf.toFixed(2)}) — split 후보`;
   if (conf < 0.75) return `병합 신뢰도 낮음 (${conf.toFixed(2)}) — 확인 필요`;
+  if (c.sourceType === "community" && c.communityContentType === "unknown") return "커뮤니티 원글/댓글/뉴스공유 판단 불가";
   if (hasVideo && hasNews) return "뉴스+YouTube 혼재 — 영상인지 뉴스보도인지 불명확";
   if (hasCommunity && hasSNS) return "커뮤니티+SNS 혼재";
   if (hasCommunity && hasNews) return "커뮤니티+뉴스 혼재";
@@ -203,6 +219,114 @@ function ReclassifyButtons({ c }: { c: Cluster }) {
   );
 }
 
+// ── 커뮤니티 contentType 재분류 버튼 ─────────────────────────────
+const COMMUNITY_RECLASSIFY_OPTIONS: { label: string; type: CommunityContentType }[] = [
+  { label: "원글", type: "original_post" },
+  { label: "댓글", type: "comment" },
+  { label: "뉴스공유", type: "shared_news" },
+];
+
+function CommunityReclassifyButtons({ c }: { c: Cluster }) {
+  const [done, setDone] = useState(false);
+  if (done) return <span className="text-xs text-green-600 font-semibold">재분류 완료</span>;
+  return (
+    <div className="mt-1 flex flex-wrap gap-1">
+      <span className="text-[11px] text-gray-400 self-center mr-1">유형 재분류:</span>
+      {COMMUNITY_RECLASSIFY_OPTIONS.map((opt) => (
+        <button
+          key={opt.type}
+          onClick={async (e) => {
+            e.preventDefault();
+            await updateCommunityContentType(c.id, opt.type, c.communityContentType);
+            setDone(true);
+          }}
+          className="rounded border border-gray-200 bg-white px-2 py-0.5 text-[11px] text-gray-600 hover:bg-gray-50"
+        >
+          {opt.label}로 분류
+        </button>
+      ))}
+    </div>
+  );
+}
+
+// ── 커뮤니티 카드 ─────────────────────────────────────────────────
+function CommunityCard({ c, showReclassify = false }: { c: Cluster; showReclassify?: boolean }) {
+  const m = GRADE_META[c.grade] ?? GRADE_META.none;
+  const borderColor = {
+    red: "border-l-[#e03131]", orange: "border-l-[#f08c00]",
+    yellow: "border-l-[#f5c518]", none: "border-l-gray-200",
+  }[c.grade] ?? "border-l-gray-200";
+
+  const cct = (c.communityContentType ?? "unknown") as CommunityContentType;
+  const displayTitle = c.latestArticleTitle ?? c.representativeTitle ?? c.title;
+  const timeLabel = c.latestPublishedAt
+    ? fmtDate(c.latestPublishedAt)
+    : c.lastSeen ? fmtDate(c.lastSeen) : "";
+  const platforms = c.stats?.platforms ?? [];
+  const shown = platforms.slice(0, 3);
+  const extra = platforms.length - shown.length;
+
+  return (
+    <Link
+      to={`/clusters/${c.id}`}
+      className={`flex gap-4 rounded-xl border border-gray-200 border-l-4 ${borderColor} bg-white px-5 py-4 shadow-sm transition hover:border-brand hover:shadow-md`}
+    >
+      <div className="flex w-14 shrink-0 flex-col items-center justify-start gap-1 pt-0.5">
+        <GradeDot grade={c.grade} />
+        <Chip className={`${m.chip} text-[10px]`}>{m.label}</Chip>
+        {c.reactivated && <Chip className="bg-purple-100 text-purple-700 text-[10px]">재발</Chip>}
+      </div>
+
+      <div className="min-w-0 flex-1">
+        <div className="flex items-start justify-between gap-2">
+          <h3 className="line-clamp-1 font-bold text-gray-900 md:text-base">{displayTitle || "(제목 없음)"}</h3>
+          <div className="hidden shrink-0 flex-col items-end gap-0.5 md:flex">
+            <span className="text-[10px] text-gray-400">{timeLabel}</span>
+            <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${COMMUNITY_CONTENT_TYPE_BADGE[cct]}`}>
+              {COMMUNITY_CONTENT_TYPE_LABEL[cct]}
+            </span>
+          </div>
+        </div>
+
+        {c.summary && c.summary !== c.title && (
+          <p className="mt-0.5 line-clamp-2 text-sm leading-relaxed text-gray-500">{c.summary}</p>
+        )}
+
+        {/* 커뮤니티 메타 */}
+        <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-gray-400">
+          {c.stats?.posts != null && <span>글 <b className="text-gray-600">{c.stats.posts}</b></span>}
+          {c.stats?.comments != null && <span>댓글 <b className="text-gray-600">{c.stats.comments}</b></span>}
+          {c.stats?.likes != null && <span>추천 <b className="text-gray-600">{c.stats.likes}</b></span>}
+          {c.stats?.views != null && <span>조회 <b className="text-gray-600">{c.stats.views}</b></span>}
+        </div>
+
+        <div className="mt-2 flex flex-wrap items-center gap-1.5">
+          {(c.patterns ?? []).map((p) => (
+            <Chip key={p} className="bg-slate-100 text-slate-600 text-[10px]">{p}</Chip>
+          ))}
+        </div>
+
+        <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+          <div className="flex flex-wrap gap-1">
+            {shown.map((p) => <PlatformIcon key={p} platform={p} />)}
+            {extra > 0 && <span className="self-center text-xs text-gray-400">+{extra}</span>}
+          </div>
+        </div>
+
+        {showReclassify && (
+          <div className="mt-2 rounded-md border border-amber-100 bg-amber-50 px-3 py-1.5">
+            <p className="text-[11px] text-amber-700 font-semibold">
+              ⚠ 확인필요 사유: {reviewReason(c)}
+            </p>
+            <ReclassifyButtons c={c} />
+            {c.sourceType === "community" && <CommunityReclassifyButtons c={c} />}
+          </div>
+        )}
+      </div>
+    </Link>
+  );
+}
+
 // ── 클러스터 카드 ─────────────────────────────────────────────────
 function ClusterRow({ c, showReclassify = false }: { c: Cluster; showReclassify?: boolean }) {
   const m = GRADE_META[c.grade] ?? GRADE_META.none;
@@ -283,10 +407,21 @@ function ClusterRow({ c, showReclassify = false }: { c: Cluster; showReclassify?
 }
 
 // ── 메인 페이지 ──────────────────────────────────────────────────
+function matchesCommunitySubTab(c: Cluster, sub: CommunitySubTab): boolean {
+  if (sub === "전체") return true;
+  const cct = c.communityContentType;
+  if (sub === "원글") return cct === "original_post";
+  if (sub === "댓글") return cct === "comment";
+  if (sub === "뉴스공유") return cct === "shared_news";
+  if (sub === "확인필요") return !cct || cct === "unknown";
+  return true;
+}
+
 export default function Issues() {
   const [sourceTab, setSourceTab] = useState<SourceTab>("뉴스");
   const [filterTab, setFilterTab] = useState<FilterTag>("전체");
   const [candTab, setCandTab] = useState<CandTab>("전체");
+  const [communitySubTab, setCommunitySubTab] = useState<CommunitySubTab>("원글");
 
   // 뉴스 탭은 latestPublishedAt 기본, 나머지는 lastSeen
   const sortBy = sourceTab === "뉴스" ? "latestPublishedAt" : "lastSeen";
@@ -296,9 +431,10 @@ export default function Issues() {
     return data.filter((c) =>
       matchesFilter(c, filterTab) &&
       matchesSource(c, sourceTab) &&
-      matchesCandidate(c, candTab)
+      matchesCandidate(c, candTab) &&
+      (sourceTab === "커뮤니티" ? matchesCommunitySubTab(c, communitySubTab) : true)
     );
-  }, [data, filterTab, sourceTab, candTab]);
+  }, [data, filterTab, sourceTab, candTab, communitySubTab]);
 
   const filterCounts = useMemo(
     () => Object.fromEntries(FILTER_TABS.map((t) => [t, data.filter((c) => matchesFilter(c, t)).length])),
@@ -316,6 +452,15 @@ export default function Issues() {
     ),
     [data, filterTab]
   );
+
+  const communitySubCounts = useMemo(() => {
+    const communityItems = data.filter(
+      (c) => matchesFilter(c, filterTab) && matchesSource(c, "커뮤니티") && matchesCandidate(c, candTab)
+    );
+    return Object.fromEntries(
+      COMMUNITY_SUB_TABS.map((s) => [s, communityItems.filter((c) => matchesCommunitySubTab(c, s)).length])
+    );
+  }, [data, filterTab, candTab]);
 
   return (
     <div>
@@ -405,9 +550,33 @@ export default function Issues() {
         </div>
       )}
       {sourceTab === "커뮤니티" && (
-        <div className="mb-3 rounded-lg border border-green-100 bg-green-50 px-3 py-2 text-xs text-green-700">
-          커뮤니티 게시글 중심 · 뉴스 공유글(shared_news)은 별도 분류
-        </div>
+        <>
+          <div className="mb-3 rounded-lg border border-green-100 bg-green-50 px-3 py-2 text-xs text-green-700">
+            커뮤니티 게시글 중심 · 원글/댓글/뉴스공유 세분류 · 기본 원글 표시
+          </div>
+          <div className="mb-4 flex gap-0 overflow-x-auto border-b border-gray-200 scrollbar-hide">
+            {COMMUNITY_SUB_TABS.map((s) => {
+              const isReview = s === "확인필요";
+              const cnt = communitySubCounts[s] ?? 0;
+              return (
+                <button
+                  key={s}
+                  onClick={() => setCommunitySubTab(s)}
+                  className={`shrink-0 whitespace-nowrap border-b-2 px-4 pb-2.5 text-sm font-medium transition ${
+                    communitySubTab === s
+                      ? isReview ? "border-amber-500 text-amber-600" : "border-green-600 text-green-700"
+                      : "border-transparent text-gray-500 hover:text-gray-700"
+                  }`}
+                >
+                  {s}
+                  <span className={`ml-1 text-xs ${isReview && cnt > 0 ? "text-amber-500 font-bold" : "text-gray-400"}`}>
+                    {cnt}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </>
       )}
       {sourceTab === "확인필요" && (
         <div className="mb-3 rounded-lg border border-amber-100 bg-amber-50 px-3 py-2 text-xs text-amber-700">
@@ -435,7 +604,11 @@ export default function Issues() {
       ) : (
         <div className="flex flex-col gap-3">
           {filtered.map((c) => (
-            <ClusterRow key={c.id} c={c} showReclassify={sourceTab === "확인필요"} />
+            sourceTab === "커뮤니티" ? (
+              <CommunityCard key={c.id} c={c} showReclassify={communitySubTab === "확인필요"} />
+            ) : (
+              <ClusterRow key={c.id} c={c} showReclassify={sourceTab === "확인필요"} />
+            )
           ))}
         </div>
       )}
