@@ -37,8 +37,8 @@ from engine.config import get_settings
 from engine.local_collectors.sns_collector import run_sns_collection
 from engine.store.firestore import FirestoreStore, _item_doc
 
-# 수집 대상 target_id — candidates.py 기반 주 타깃
-_DEFAULT_TARGET_ID = "target_party_leader_2026"
+# 수집 대상 target_id — Firestore 실제 운영 경로 targets/minju-jeondaehoe
+_DEFAULT_TARGET_ID = "minju-jeondaehoe"
 _DEFAULT_KEYWORDS = ALL_CANDIDATE_NAMES + ["전당대회", "민주당 대표"]
 
 
