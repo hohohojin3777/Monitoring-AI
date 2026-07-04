@@ -73,8 +73,15 @@ async def _run(
 
     if dry_run:
         for it in all_items:
-            logger.info("[dry-run] {} | {} | {}", it.platform, it.url[:60], it.title[:40])
-        logger.info("[dry-run] Firestore 저장 안 함 — 종료")
+            entities = it.matched_entities or []
+            logger.info(
+                "[dry-run] {} | author={} | matched={} | {}",
+                it.platform,
+                it.author[:30] if it.author else "(없음)",
+                entities,
+                it.title[:50],
+            )
+        logger.info("[dry-run] 총 {}건 — Firestore 저장 안 함", len(all_items))
         return
 
     # 2) Firestore 연결 + 중복 체크

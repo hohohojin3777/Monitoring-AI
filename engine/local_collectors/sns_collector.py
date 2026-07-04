@@ -57,6 +57,46 @@ _DEFAULT_KEYWORDS = ALL_CANDIDATE_NAMES + ["전당대회", "민주당 대표"]
 
 _MAX_PER_KEYWORD = 20  # 키워드당 최대 수집 건수
 
+# ── 후보 SNS alias 매핑 ─────────────────────────────────────────
+# author/page name 원문 → 정규화된 후보명
+# raw_author는 그대로 보존, matched_entities에 정규화 후보명 사용
+SNS_CANDIDATE_ALIASES: dict[str, str] = {
+    # 정청래
+    "정청래의 알콩달콩": "정청래",
+    "정청래 국회의원": "정청래",
+    "정청래의원": "정청래",
+    # 김민석
+    "김민석 국회의원": "김민석",
+    "김민석의원": "김민석",
+    "더불어민주당 김민석": "김민석",
+    # 송영길
+    "송영길 전 대표": "송영길",
+    "송영길의원": "송영길",
+    # 고민정
+    "고민정 국회의원": "고민정",
+    "고민정의원": "고민정",
+}
+
+# alias → 정규화 후보명 빠른 조회 (소문자 정규화)
+_ALIAS_MAP_LOWER: dict[str, str] = {
+    k.lower(): v for k, v in SNS_CANDIDATE_ALIASES.items()
+}
+
+
+def resolve_author_to_candidate(raw_author: str) -> str | None:
+    """raw_author를 후보명으로 정규화. 매칭 없으면 None."""
+    if not raw_author:
+        return None
+    lower = raw_author.strip().lower()
+    # 정확 매칭
+    if lower in _ALIAS_MAP_LOWER:
+        return _ALIAS_MAP_LOWER[lower]
+    # 부분 매칭 (alias가 author에 포함되거나 반대)
+    for alias_lower, candidate in _ALIAS_MAP_LOWER.items():
+        if alias_lower in lower or lower in alias_lower:
+            return candidate
+    return None
+
 
 # ── X(트위터) ──────────────────────────────────────────────────
 
@@ -137,17 +177,21 @@ async def collect_x(
                 detected = _URL_RE.findall(content)
                 detected += [lnk for lnk in p.get("links", []) if lnk not in detected]
 
+                raw_author = p.get("user", "")
+                matched = _match_entities(raw_author, content, keywords)
+
                 it = RawItem(
                     platform="x",
                     source_type="sns",
                     url=url,
                     title=content[:120],
                     content=content,
-                    author=p.get("user", ""),
+                    author=raw_author,
                     published_at=published,
                     keyword=kw,
                 )
                 it.detected_links = detected[:20]
+                it.matched_entities = matched
                 items.append(it)
                 kw_count += 1
 
@@ -165,7 +209,7 @@ _FB_EXTRACT_JS = r"""
   const posts = [];
   const seen = new Set();
 
-  // 게시글 컨테이너 후보
+  // 게시글 컨테이너 후보 (Facebook 검색결과 DOM)
   const containers = document.querySelectorAll(
     '[data-pagelet*="FeedUnit"], [role="article"], .x1yztbdb'
   );
@@ -183,8 +227,21 @@ _FB_EXTRACT_JS = r"""
     const timeEl = c.querySelector('abbr[data-utime], [data-testid="story-subtitle"] abbr, a[role="link"] span');
     const time = timeEl ? (timeEl.getAttribute('data-utime') || timeEl.innerText || '') : '';
 
-    const userEl = c.querySelector('h2, strong, [data-testid="story-subtitle"] strong');
-    const user = userEl ? (userEl.innerText || '').split('\n')[0].trim().slice(0, 60) : '';
+    // 작성자: h2 > a (페이지명), strong, 또는 첫 번째 내부 텍스트에서 추출
+    let user = '';
+    const h2LinkEl = c.querySelector('h2 a, h3 a');
+    if (h2LinkEl) {
+      user = (h2LinkEl.innerText || '').trim().slice(0, 80);
+    }
+    if (!user) {
+      const strongEl = c.querySelector('strong a, strong');
+      if (strongEl) user = (strongEl.innerText || '').trim().slice(0, 80);
+    }
+    // 폴백: innerText 첫 줄 (· 팔로우 앞 부분)
+    if (!user && text) {
+      const firstLine = text.split('·')[0].trim();
+      if (firstLine && firstLine.length < 60) user = firstLine;
+    }
 
     const links = [];
     c.querySelectorAll('a[href]').forEach(a => {
@@ -243,17 +300,21 @@ async def collect_facebook(
                 detected = _URL_RE.findall(content)
                 detected += [lnk for lnk in p.get("links", []) if lnk not in detected]
 
+                raw_author = p.get("user", "")
+                matched = _match_entities(raw_author, content, keywords)
+
                 it = RawItem(
                     platform="facebook",
                     source_type="sns",
                     url=url,
                     title=content[:120],
                     content=content,
-                    author=p.get("user", ""),
+                    author=raw_author,
                     published_at=published,
                     keyword=kw,
                 )
                 it.detected_links = detected[:20]
+                it.matched_entities = matched
                 items.append(it)
                 kw_count += 1
 
@@ -281,6 +342,31 @@ async def collect_threads(page, keywords: list[str]) -> list[RawItem]:
 def _contains_keyword(text: str, keywords: list[str]) -> bool:
     """텍스트에 후보명 또는 전당대회 키워드가 포함되는지."""
     return any(kw in text for kw in keywords)
+
+
+def _match_entities(raw_author: str, content: str, keywords: list[str]) -> list[str]:
+    """author alias + 본문 키워드에서 정규화된 후보명 목록 반환.
+
+    - raw_author가 SNS_CANDIDATE_ALIASES에 매칭되면 해당 후보명 포함
+    - 본문/author에 후보명이 직접 언급되면 추가
+    - 중복 없이 반환
+    """
+    from ..candidates import MAIN_CANDIDATE_NAMES
+
+    matched: set[str] = set()
+
+    # 1) author alias 매핑
+    resolved = resolve_author_to_candidate(raw_author)
+    if resolved:
+        matched.add(resolved)
+
+    # 2) 본문 + author 직접 언급 (main 후보명만)
+    haystack = (raw_author + " " + content).lower()
+    for name in MAIN_CANDIDATE_NAMES:
+        if name in haystack:
+            matched.add(name)
+
+    return sorted(matched)
 
 
 def _parse_iso(s: str) -> datetime | None:
