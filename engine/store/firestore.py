@@ -98,6 +98,7 @@ class FirestoreStore:
                     first_seen=_as_dt(data.get("firstSeen")),
                     last_seen=_as_dt(data.get("lastSeen")),
                     latest_published_at=_as_dt(data["latestPublishedAt"]) if data.get("latestPublishedAt") else None,
+                    first_published_at=_as_dt(data["firstPublishedAt"]) if data.get("firstPublishedAt") else None,
                     status=data.get("status", "active"),
                     item_ids=data.get("itemIds", []) or [],
                     grade=data.get("grade", "none"),
@@ -106,6 +107,12 @@ class FirestoreStore:
                     reactivated=data.get("reactivated", False),
                     summary=data.get("summary", ""),
                     stats=data.get("stats", {}) or {},
+                    latest_article_title=data.get("latestArticleTitle", ""),
+                    latest_article_url=data.get("latestArticleUrl", ""),
+                    representative_title=data.get("representativeTitle", ""),
+                    representative_url=data.get("representativeUrl", ""),
+                    published_at_missing=data.get("publishedAtMissing", False),
+                    needs_time_review=data.get("needsTimeReview", False),
                 )
             )
         return clusters
@@ -416,14 +423,16 @@ def _doc_to_item(data: dict) -> RawItem:
 
 
 def _cluster_doc(c: Cluster) -> dict:
-    return {
+    now = datetime.now(timezone.utc)
+    doc: dict = {
         "title": c.title,
         "repText": c.rep_text[:1000],
         "summary": c.summary,
         "firstSeen": c.first_seen,
         "lastSeen": c.last_seen,
         "latestPublishedAt": c.latest_published_at,
-        "updatedAt": datetime.now(timezone.utc),
+        "clusterUpdatedAt": now,
+        "updatedAt": now,
         "status": c.status,
         "grade": c.grade,
         "patterns": c.patterns,
@@ -433,3 +442,18 @@ def _cluster_doc(c: Cluster) -> dict:
         "itemCount": len(c.item_ids),
         "stats": c.stats,
     }
+    # 최신 기사 필드 — 값이 있을 때만 저장 (기존 값 덮어쓰지 않음)
+    if c.latest_article_title:
+        doc["latestArticleTitle"] = c.latest_article_title
+    if c.latest_article_url:
+        doc["latestArticleUrl"] = c.latest_article_url
+    if c.representative_title:
+        doc["representativeTitle"] = c.representative_title
+    if c.representative_url:
+        doc["representativeUrl"] = c.representative_url
+    if c.first_published_at:
+        doc["firstPublishedAt"] = c.first_published_at
+    if c.published_at_missing:
+        doc["publishedAtMissing"] = True
+        doc["needsTimeReview"] = True
+    return doc

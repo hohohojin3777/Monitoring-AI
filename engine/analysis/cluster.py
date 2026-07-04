@@ -45,6 +45,7 @@ class Cluster:
     first_seen: datetime
     last_seen: datetime
     latest_published_at: datetime | None = None  # 클러스터 내 가장 최신 실제 발행 시간
+    first_published_at: datetime | None = None   # 클러스터 내 가장 오래된 발행 시간
     status: str = "active"                  # active | resolved | archived
     item_ids: list[str] = field(default_factory=list)
     grade: str = "none"
@@ -53,6 +54,13 @@ class Cluster:
     reactivated: bool = False
     summary: str = ""
     stats: dict = field(default_factory=dict)
+    # 최신 기사 정보 (뉴스 탭 대표 표시용)
+    latest_article_title: str = ""
+    latest_article_url: str = ""
+    representative_title: str = ""
+    representative_url: str = ""
+    published_at_missing: bool = False      # publishedAt 없이 수집된 클러스터
+    needs_time_review: bool = False
     # transient (이번 run 에서 추가된 item)
     new_item_ids: list[str] = field(default_factory=list)
     touched: bool = False
@@ -103,8 +111,21 @@ def assign_clusters(
             c.new_item_ids.append(item.item_id)
             c.last_seen = now
             if item.published_at:
+                # 최신 발행 시간 갱신 → 대표 기사 title/url 동시 갱신
                 if c.latest_published_at is None or item.published_at > c.latest_published_at:
                     c.latest_published_at = item.published_at
+                    if item.title:
+                        c.latest_article_title = item.title
+                        c.representative_title = item.title
+                    if item.url:
+                        c.latest_article_url = item.url
+                        c.representative_url = item.url
+                # 가장 오래된 발행 시간
+                if c.first_published_at is None or item.published_at < c.first_published_at:
+                    c.first_published_at = item.published_at
+            else:
+                c.published_at_missing = True
+                c.needs_time_review = True
             c.touched = True
             # 종료된 클러스터에 새 글 유입 → 재발
             if c.status in ("resolved", "archived"):
@@ -116,13 +137,21 @@ def assign_clusters(
         else:
             cid = _new_cluster_id(item.item_id)
             published = item.published_at or now
+            seed_title = _cluster_title(item)
             c = Cluster(
                 cluster_id=cid,
-                title=_cluster_title(item),
+                title=seed_title,
                 rep_text=item.text,
                 first_seen=published,
                 last_seen=now,
                 latest_published_at=item.published_at,
+                first_published_at=item.published_at,
+                latest_article_title=item.title or seed_title,
+                latest_article_url=item.url or "",
+                representative_title=item.title or seed_title,
+                representative_url=item.url or "",
+                published_at_missing=item.published_at is None,
+                needs_time_review=item.published_at is None,
                 item_ids=[item.item_id],
                 new_item_ids=[item.item_id],
                 touched=True,
