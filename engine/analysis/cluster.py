@@ -114,6 +114,7 @@ class Cluster:
     published_at_missing: bool = False      # publishedAt 없이 수집된 클러스터
     needs_time_review: bool = False
     cluster_confidence: float = 1.0   # 최근 병합 시 유사도/임계값 비율 (낮을수록 불안정)
+    event_key: str = ""               # Claude 추출 이벤트 키 — 다르면 병합 차단
     # transient (이번 run 에서 추가된 item)
     new_item_ids: list[str] = field(default_factory=list)
     touched: bool = False
@@ -170,6 +171,12 @@ def assign_clusters(
             clusters[best_i].title if best_i >= 0 else "",
         ) if best_i >= 0 else threshold
 
+        # eventKey 불일치이면 병합 차단 (둘 다 있을 때만)
+        if best_i >= 0 and best_sim >= effective:
+            c_candidate = clusters[best_i]
+            if item.event_key and c_candidate.event_key and item.event_key != c_candidate.event_key:
+                best_sim = -1.0  # 강제 차단 → 새 클러스터 생성
+
         if best_i >= 0 and best_sim >= effective:
             c = clusters[best_i]
             c.cluster_confidence = round(best_sim / effective, 3) if effective > 0 else 1.0
@@ -218,6 +225,7 @@ def assign_clusters(
                 representative_url=item.url or "",
                 published_at_missing=item.published_at is None,
                 needs_time_review=item.published_at is None,
+                event_key=item.event_key,
                 item_ids=[item.item_id],
                 new_item_ids=[item.item_id],
                 touched=True,

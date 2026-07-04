@@ -54,6 +54,10 @@ export interface Cluster {
   representativeTitle?: string;
   // 공식 탭
   officialSource?: string;
+  // 병합 신뢰도 (1.0=확실, 0.75미만=확인필요, 0.50미만=split후보)
+  clusterConfidence?: number;
+  // 이벤트 키 (eventKey 기반 병합 차단용)
+  eventKey?: string;
 }
 
 export interface Item {

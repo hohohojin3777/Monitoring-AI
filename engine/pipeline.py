@@ -403,9 +403,10 @@ async def run_target(target_id: str, store: FirestoreStore | None = None, collec
             store.save_rejected(target_id, rejected)
         return {"collected": len(raw), "passed": 0, "rejected": len(rejected), "clusters": 0}
 
-    # 3) 감정 분류
+    # 3) 감정 분류 + eventKey 추출
     claude = ClaudeAnalyzer(s)
     await claude.classify_sentiments(passed, target.name)
+    await claude.extract_event_keys(passed)
 
     # 4) 임베딩 + 클러스터링
     embedder = get_embedder(s)

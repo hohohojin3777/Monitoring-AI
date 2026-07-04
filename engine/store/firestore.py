@@ -114,6 +114,7 @@ class FirestoreStore:
                     published_at_missing=data.get("publishedAtMissing", False),
                     needs_time_review=data.get("needsTimeReview", False),
                     cluster_confidence=data.get("clusterConfidence", 1.0),
+                    event_key=data.get("eventKey", ""),
                 )
             )
         return clusters
@@ -401,6 +402,7 @@ def _item_doc(it: RawItem) -> dict:
         "rejected": it.rejected,
         "rejectReason": it.reject_reason,
         "imageUrl": it.image_url or "",
+        "eventKey": it.event_key or "",
     }
 
 
@@ -459,4 +461,6 @@ def _cluster_doc(c: Cluster) -> dict:
         doc["needsTimeReview"] = True
     if c.cluster_confidence < 1.0:
         doc["clusterConfidence"] = c.cluster_confidence
+    if c.event_key:
+        doc["eventKey"] = c.event_key
     return doc

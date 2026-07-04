@@ -102,6 +102,57 @@ class ClaudeAnalyzer:
             logger.error("[claude] 요약 실패: {}", e)
             return title
 
+    # ── eventKey 배치 추출 ────────────────────────────────────────
+    async def extract_event_keys(
+        self, items: list[RawItem], batch_size: int = 15
+    ) -> None:
+        """각 item에 event_key (str) 를 채운다. 이미 있으면 건너뜀.
+
+        event_key 형식: "핵심이벤트/장소/날짜" — 같은 사건이면 동일, 다른 사건이면 다름.
+        키 없으면 title 해시 폴백.
+        """
+        targets = [it for it in items if not getattr(it, "event_key", None)]
+        if not targets:
+            return
+        if not self.available():
+            import hashlib
+            for it in targets:
+                it.event_key = hashlib.md5((it.title or it.text[:50]).encode()).hexdigest()[:12]
+            return
+
+        system = (
+            "정치 뉴스 기사 제목 목록을 보고, 각 기사가 어떤 사건(이벤트)을 다루는지 "
+            "핵심 이벤트 키를 추출해라.\n"
+            "규칙:\n"
+            "- 형식: '핵심이벤트명/핵심장소/날짜(YYYY-MM-DD)'\n"
+            "- 같은 사건이면 반드시 같은 키, 다른 사건이면 반드시 다른 키\n"
+            "- 후보 이름만 같다고 같은 이벤트가 아님\n"
+            "- 날짜 모르면 'unknown' 사용\n"
+            "- 반드시 JSON 배열로만 반환: [\"키1\", \"키2\", ...] (입력 순서와 동일 길이)\n"
+            "예시: [\"워크숍_한테이블신경전/국회/2026-07-03\", \"주말행보_3인3색/익산·광주/2026-07-04\"]"
+        )
+
+        for start in range(0, len(targets), batch_size):
+            chunk = targets[start : start + batch_size]
+            numbered = "\n".join(
+                f"{i}. {it.title or it.text[:120]}" for i, it in enumerate(chunk)
+            )
+            try:
+                out = await self._call(
+                    self._s.claude_model_fast, system, numbered, max_tokens=512
+                )
+                keys = _extract_json(out) or []
+            except Exception as e:  # noqa: BLE001
+                logger.error("[claude] eventKey 추출 실패: {}", e)
+                keys = []
+            import hashlib
+            for i, it in enumerate(chunk):
+                if i < len(keys) and isinstance(keys[i], str) and keys[i]:
+                    it.event_key = keys[i].strip()[:120]
+                else:
+                    it.event_key = hashlib.md5((it.title or it.text[:50]).encode()).hexdigest()[:12]
+        logger.info("[claude] eventKey 추출 완료: {}건", len(targets))
+
     # ── 대응안 초안 (관리자 'AI 추천' 버튼) ─────────────────────
     async def suggest_response(self, cluster_info: dict) -> dict:
         """{plan, steps:[{order,text}], note} 반환. 관리자가 검토·수정 후 발행."""

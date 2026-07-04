@@ -56,6 +56,8 @@ function getSourceType(c: Cluster): SourceType {
 
 // 확인필요: sourceType이 unknown이거나 플랫폼 혼재
 function needsReview(c: Cluster): boolean {
+  // 낮은 병합 신뢰도
+  if ((c.clusterConfidence ?? 1.0) < 0.75) return true;
   if (c.sourceType === "unknown") return true;
   const platforms = c.stats?.platforms ?? [];
   if (platforms.length === 0) return !c.sourceType;
@@ -79,6 +81,9 @@ function reviewReason(c: Cluster): string {
   const hasVideo = platforms.some((p) => VIDEO_PLATFORMS.has(p));
   const hasCommunity = platforms.some((p) => COMMUNITY_PLATFORMS.has(p));
   const hasSNS = platforms.some((p) => SNS_PLATFORMS.has(p));
+  const conf = c.clusterConfidence ?? 1.0;
+  if (conf < 0.50) return `병합 신뢰도 매우 낮음 (${conf.toFixed(2)}) — split 후보`;
+  if (conf < 0.75) return `병합 신뢰도 낮음 (${conf.toFixed(2)}) — 확인 필요`;
   if (hasVideo && hasNews) return "뉴스+YouTube 혼재 — 영상인지 뉴스보도인지 불명확";
   if (hasCommunity && hasSNS) return "커뮤니티+SNS 혼재";
   if (hasCommunity && hasNews) return "커뮤니티+뉴스 혼재";

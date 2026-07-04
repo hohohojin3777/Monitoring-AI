@@ -64,6 +64,7 @@ class RawItem:
     # ── 파이프라인이 채우는 주석 필드 (수집 시점엔 비어있음) ──
     matched_entities: list[str] = field(default_factory=list)
     sentiment: str = ""         # positive | neutral | negative | attack
+    event_key: str = ""         # Claude 추출 이벤트 키 — 다르면 병합 차단
     embedding: list[float] | None = None
     cluster_id: str | None = None
     rejected: bool = False
