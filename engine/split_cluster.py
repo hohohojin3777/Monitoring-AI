@@ -46,7 +46,13 @@ def _new_cluster_id(item_id: str) -> str:
     return hashlib.sha256(item_id.encode()).hexdigest()[:8]
 
 
-def run(cluster_id: str, dry_run: bool, target_id: str = "minju-jeondaehoe") -> None:
+_VALID_REASONS = {
+    "different_event", "different_date", "different_topic",
+    "weak_title_similarity", "shared_only_common_keywords", "manual_split",
+}
+
+
+def run(cluster_id: str, dry_run: bool, target_id: str = "minju-jeondaehoe", reason: str = "manual_split") -> None:
     db = _connect_firestore()
     tref = db.collection("targets").document(target_id)
     cref = tref.collection("clusters").document(cluster_id)
@@ -96,7 +102,7 @@ def run(cluster_id: str, dry_run: bool, target_id: str = "minju-jeondaehoe") -> 
     seed_pa, seed_d, seed_iid = timed[0]
     rest = timed[1:]
 
-    print(f"[SPLIT 계획]")
+    print(f"[SPLIT 계획] splitReason={reason}")
     print(f"  원본 유지: {seed_iid[:8]} — {seed_d.get('title','')[:60]}")
     print(f"  분리 대상: {len(rest)}건")
     for pa, d, iid in rest:
@@ -155,6 +161,7 @@ def run(cluster_id: str, dry_run: bool, target_id: str = "minju-jeondaehoe") -> 
             "firstSeen": now,
             "lastSeen": now,
             "splitFrom": cluster_id,
+            "splitReason": reason,
             "splitAt": now,
             "clusterUpdatedAt": now,
             "stats": {
@@ -178,11 +185,17 @@ def _cli():
     parser.add_argument("--target", default="minju-jeondaehoe")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--apply", action="store_true")
+    parser.add_argument(
+        "--reason",
+        default="manual_split",
+        choices=sorted(_VALID_REASONS),
+        help="분리 사유 (splitReason 필드)",
+    )
     args = parser.parse_args()
     if not args.dry_run and not args.apply:
         parser.print_help()
         sys.exit(1)
-    run(args.cluster_id, dry_run=not args.apply, target_id=args.target)
+    run(args.cluster_id, dry_run=not args.apply, target_id=args.target, reason=args.reason)
 
 
 if __name__ == "__main__":
