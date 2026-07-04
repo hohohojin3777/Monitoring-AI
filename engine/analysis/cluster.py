@@ -115,6 +115,10 @@ class Cluster:
     needs_time_review: bool = False
     cluster_confidence: float = 1.0   # 최근 병합 시 유사도/임계값 비율 (낮을수록 불안정)
     event_key: str = ""               # Claude 추출 이벤트 키 — 다르면 병합 차단
+    # 중요도/리스크/대응 3-레이어 분류 (기존 grade는 하위호환 유지)
+    issue_importance: str = "일반"    # 일반 | 관찰 | 중요 | 핵심
+    risk_level: str = "없음"          # 없음 | 주의 | 위기 | 긴급
+    response_level: str = "무대응"   # 무대응 | 모니터링 | 보고필요 | 대응필요 | 즉시대응
     # transient (이번 run 에서 추가된 item)
     new_item_ids: list[str] = field(default_factory=list)
     touched: bool = False

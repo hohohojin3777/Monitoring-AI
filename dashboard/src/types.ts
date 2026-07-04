@@ -4,6 +4,10 @@ export type Grade = "red" | "orange" | "yellow" | "none";
 export type FilterTag = "전체" | "대응필요" | "주의" | "위기" | "재발";
 export type Role = "admin" | "member";
 
+export type IssueImportance = "일반" | "관찰" | "중요" | "핵심";
+export type RiskLevel = "없음" | "주의" | "위기" | "긴급";
+export type ResponseLevel = "무대응" | "모니터링" | "보고필요" | "대응필요" | "즉시대응";
+
 export interface Member {
   uid: string;
   role: Role;
@@ -58,6 +62,10 @@ export interface Cluster {
   clusterConfidence?: number;
   // 이벤트 키 (eventKey 기반 병합 차단용)
   eventKey?: string;
+  // 3-레이어 분류 (중요도/리스크/대응)
+  issueImportance?: IssueImportance;
+  riskLevel?: RiskLevel;
+  responseLevel?: ResponseLevel;
 }
 
 export interface Item {

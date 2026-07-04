@@ -115,6 +115,9 @@ class FirestoreStore:
                     needs_time_review=data.get("needsTimeReview", False),
                     cluster_confidence=data.get("clusterConfidence", 1.0),
                     event_key=data.get("eventKey", ""),
+                    issue_importance=data.get("issueImportance", "일반"),
+                    risk_level=data.get("riskLevel", "없음"),
+                    response_level=data.get("responseLevel", "무대응"),
                 )
             )
         return clusters
@@ -469,6 +472,9 @@ def _cluster_doc(c: Cluster) -> dict:
         "itemIds": c.item_ids[:500],
         "itemCount": len(c.item_ids),
         "stats": c.stats,
+        "issueImportance": c.issue_importance,
+        "riskLevel": c.risk_level,
+        "responseLevel": c.response_level,
     }
     # 최신 기사 필드 — 값이 있을 때만 저장 (기존 값 덮어쓰지 않음)
     if c.latest_article_title:

@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useClusters } from "../lib/data";
 import { reclassifyCluster, updateCommunityContentType } from "../lib/data";
-import { Chip, GRADE_META, GradeDot, fmtDate } from "../lib/ui";
+import { Chip, GRADE_META, GradeDot, fmtDate, resolveIssueBadge } from "../lib/ui";
 import type { Cluster, FilterTag, SourceType, CommunityContentType } from "../types";
 import { MAIN_CANDIDATE_NAMES } from "../lib/candidates";
 
@@ -127,10 +127,16 @@ function matchesFilter(c: Cluster, tab: FilterTag): boolean {
   switch (tab) {
     case "전체": return c.status !== "archived";
     case "대응필요":
-      return c.filterTag === "대응필요" || c.grade === "red" || c.grade === "orange" ||
-        (c.patterns ?? []).some((p) => p === "부정다플랫폼" || p === "다플랫폼집단");
-    case "주의": return c.grade === "yellow" || c.filterTag === "주의";
-    case "위기": return c.grade !== "none";
+      return c.filterTag === "대응필요"
+        || c.riskLevel === "긴급" || c.riskLevel === "위기"
+        || c.responseLevel === "즉시대응" || c.responseLevel === "대응필요"
+        || c.grade === "red" || c.grade === "orange"
+        || (c.patterns ?? []).some((p) => p === "부정다플랫폼" || p === "다플랫폼집단");
+    case "주의":
+      // 진짜 리스크가 있는 항목만 — 매체다양성만 있는 중요 뉴스는 제외
+      return c.riskLevel === "주의" || c.filterTag === "주의";
+    case "위기":
+      return c.riskLevel === "위기" || c.riskLevel === "긴급" || c.grade === "red" || c.grade === "orange";
     case "재발": return !!c.reactivated || c.filterTag === "재발";
   }
 }
@@ -329,14 +335,21 @@ function CommunityCard({ c, showReclassify = false }: { c: Cluster; showReclassi
 
 // ── 클러스터 카드 ─────────────────────────────────────────────────
 function ClusterRow({ c, showReclassify = false }: { c: Cluster; showReclassify?: boolean }) {
-  const m = GRADE_META[c.grade] ?? GRADE_META.none;
+  const badge = resolveIssueBadge(c.riskLevel, c.responseLevel, c.issueImportance, c.grade);
   const platforms = c.stats?.platforms ?? [];
   const shown = platforms.slice(0, 5);
   const extra = platforms.length - shown.length;
-  const borderColor = {
-    red: "border-l-[#e03131]", orange: "border-l-[#f08c00]",
-    yellow: "border-l-[#f5c518]", none: "border-l-gray-200",
-  }[c.grade] ?? "border-l-gray-200";
+
+  // 왼쪽 띠 색: 리스크 기반
+  const riskLevel = c.riskLevel ?? "없음";
+  const borderColor =
+    riskLevel === "긴급" ? "border-l-[#e03131]"
+    : riskLevel === "위기" ? "border-l-[#e03131]"
+    : riskLevel === "주의" ? "border-l-[#f08c00]"
+    : c.responseLevel === "즉시대응" || c.responseLevel === "대응필요" ? "border-l-[#f08c00]"
+    : c.issueImportance === "핵심" ? "border-l-blue-500"
+    : c.issueImportance === "중요" ? "border-l-blue-300"
+    : "border-l-gray-200";
 
   const st = getSourceType(c);
   const displayTitle = c.latestArticleTitle ?? c.representativeTitle ?? c.title;
@@ -352,8 +365,8 @@ function ClusterRow({ c, showReclassify = false }: { c: Cluster; showReclassify?
       className={`flex gap-4 rounded-xl border border-gray-200 border-l-4 ${borderColor} bg-white px-5 py-4 shadow-sm transition hover:border-brand hover:shadow-md`}
     >
       <div className="flex w-14 shrink-0 flex-col items-center justify-start gap-1 pt-0.5">
-        <GradeDot grade={c.grade} />
-        <Chip className={`${m.chip} text-[10px]`}>{m.label}</Chip>
+        <span className={`inline-block h-2.5 w-2.5 rounded-full ${badge.dot}`} />
+        <Chip className={`${badge.chip} text-[10px]`}>{badge.label}</Chip>
         {c.reactivated && <Chip className="bg-purple-100 text-purple-700 text-[10px]">재발</Chip>}
       </div>
 
@@ -376,9 +389,22 @@ function ClusterRow({ c, showReclassify = false }: { c: Cluster; showReclassify?
         )}
 
         <div className="mt-2 flex flex-wrap items-center gap-1.5">
-          {(c.patterns ?? []).map((p) => (
-            <Chip key={p} className="bg-slate-100 text-slate-600 text-[10px]">{p}</Chip>
-          ))}
+          {(c.patterns ?? [])
+            .filter((p) => p !== "다매체확산")  // 리스크 아닌 확산 패턴은 카드에서 숨김
+            .map((p) => (
+              <Chip key={p} className="bg-slate-100 text-slate-600 text-[10px]">{p}</Chip>
+            ))}
+          {/* 중요도/리스크/대응 보조 배지 — 리스크가 없는 핵심/중요 이슈에만 */}
+          {riskLevel === "없음" && c.issueImportance && c.issueImportance !== "일반" && (
+            <Chip className="bg-blue-50 text-blue-600 border border-blue-200 text-[10px]">
+              {c.issueImportance}
+            </Chip>
+          )}
+          {c.responseLevel && c.responseLevel !== "무대응" && c.responseLevel !== "모니터링" && riskLevel === "없음" && (
+            <Chip className="bg-purple-50 text-purple-600 border border-purple-200 text-[10px]">
+              {c.responseLevel}
+            </Chip>
+          )}
         </div>
 
         <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
