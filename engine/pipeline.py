@@ -411,7 +411,11 @@ async def run_target(target_id: str, store: FirestoreStore | None = None, collec
     embedder = get_embedder(s)
     active = store.load_active_clusters(target_id, s.window_days)
     prev_grade = {c.cluster_id: c.grade for c in active}
-    touched = assign_clusters(active, passed, embedder, s.similarity_threshold())
+    touched = assign_clusters(
+        active, passed, embedder, s.similarity_threshold(),
+        time_gate_hours=s.cluster_time_gate_hours,
+        time_gate_threshold=s.cluster_time_gate_threshold,
+    )
 
     # 5) 채점 (클러스터별 기존+신규 item 합쳐 등급)
     new_by_cluster: dict[str, list[RawItem]] = {}

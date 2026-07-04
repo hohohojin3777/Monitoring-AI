@@ -45,10 +45,14 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
 
     # ── 클러스터링 ──
-    # 신경망 임베딩(kosimcse/voyage/openai)용 임계값
-    cluster_similarity_threshold: float = 0.62
+    # 신경망 임베딩(kosimcse/voyage/openai)용 임계값 — 0.62→0.75 (공통키워드 과병합 방지)
+    cluster_similarity_threshold: float = 0.75
     # TF-IDF(문자 n-gram)는 유사도가 낮게 나와 별도 임계값 사용
-    tfidf_similarity_threshold: float = 0.30
+    tfidf_similarity_threshold: float = 0.35
+    # 시간 게이트: 이 시간(시간) 이상 차이 나면 높은 임계값 적용
+    cluster_time_gate_hours: int = 24
+    # 시간 게이트 초과 시 적용되는 강화 임계값
+    cluster_time_gate_threshold: float = 0.88
     window_days: int = 30
 
     def similarity_threshold(self) -> float:

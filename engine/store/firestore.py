@@ -113,6 +113,7 @@ class FirestoreStore:
                     representative_url=data.get("representativeUrl", ""),
                     published_at_missing=data.get("publishedAtMissing", False),
                     needs_time_review=data.get("needsTimeReview", False),
+                    cluster_confidence=data.get("clusterConfidence", 1.0),
                 )
             )
         return clusters
@@ -456,4 +457,6 @@ def _cluster_doc(c: Cluster) -> dict:
     if c.published_at_missing:
         doc["publishedAtMissing"] = True
         doc["needsTimeReview"] = True
+    if c.cluster_confidence < 1.0:
+        doc["clusterConfidence"] = c.cluster_confidence
     return doc
