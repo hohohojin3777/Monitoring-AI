@@ -38,8 +38,10 @@ const WEIGHTED_KEYWORDS: Record<string, string> = {
   ...Object.fromEntries(ALL_CANDIDATE_NAMES.map((n) => [n, "candidate"])),
   // 프레임
   책임론: "frame", 쇄신론: "frame", 통합론: "frame", 안정론: "frame", 개혁론: "frame",
-  당정관계: "frame", 친명: "frame", 강성당원: "frame", 검찰개혁: "frame",
-  관리형: "frame", 실용: "frame", 확장: "frame",
+  검찰개혁: "frame", 강성당원: "frame", 친명: "frame", 비명: "frame", 반명: "frame",
+  당정일체: "frame", 당정관계: "frame", 관리형: "frame", 확장성: "frame",
+  실용: "frame", 개혁강성: "frame", 친명주류비판: "frame",
+  지방선거책임: "frame",
 };
 
 const CATEGORY_META: Record<string, { label: string; color: string; bg: string }> = {
