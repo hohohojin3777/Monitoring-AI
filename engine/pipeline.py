@@ -238,6 +238,73 @@ def _author_tendency(name: str) -> tuple[str, str]:
     return ("중립/불명", "-")
 
 
+_NEWS_DOMAINS_RE = re.compile(
+    r"https?://(?:www\.)?(?:"
+    r"news\.naver\.com|n\.news\.naver\.com|news\.daum\.net|v\.daum\.net|"
+    r"news\.nate\.com|yna\.co\.kr|yonhapnews\.co\.kr|"
+    r"chosun\.com|joongang\.co\.kr|donga\.com|hani\.co\.kr|khan\.co\.kr|"
+    r"ohmynews\.com|newsis\.com|etoday\.co\.kr|mt\.co\.kr|sedaily\.com|"
+    r"hankyung\.com|mk\.co\.kr|sbs\.co\.kr|kbs\.co\.kr|mbc\.co\.kr|jtbc\.co\.kr"
+    r")",
+    re.IGNORECASE,
+)
+
+_URL_RE = re.compile(r"https?://[^\s\"'<>]+", re.IGNORECASE)
+
+
+def _classify_community_items(items: list[RawItem]) -> None:
+    """sourceType=community 아이템에 communityContentType을 자동 분류."""
+    for it in items:
+        if it.source_type != "community":
+            continue
+        # 이미 수집기가 채운 경우 건드리지 않음
+        if it.community_content_type:
+            continue
+
+        text = it.content or ""
+        title = it.title or ""
+
+        # 1) 댓글 판단
+        if it.comment_id or it.parent_post_id or it.parent_url:
+            it.community_content_type = "comment"
+            it.classification_reason = "comment_id/parent_post_id/parent_url 필드 존재"
+            it.classification_confidence = 0.95
+            continue
+
+        # 2) 본문에서 링크 감지
+        links = _URL_RE.findall(text + " " + title)
+        it.detected_links = links[:20]  # 최대 20개 저장
+        news_links = [lnk for lnk in links if _NEWS_DOMAINS_RE.match(lnk)]
+
+        if it.shared_url and _NEWS_DOMAINS_RE.match(it.shared_url):
+            news_links.append(it.shared_url)
+        if it.article_url and _NEWS_DOMAINS_RE.match(it.article_url):
+            news_links.append(it.article_url)
+
+        if news_links:
+            it.community_content_type = "shared_news"
+            it.shared_url = it.shared_url or news_links[0]
+            it.classification_reason = f"뉴스 링크 감지: {news_links[0][:60]}"
+            it.classification_confidence = min(0.9, 0.65 + len(news_links) * 0.1)
+            continue
+
+        # 3) original_post 판단
+        has_title = len(title.strip()) >= 5
+        has_text = len(text.strip()) >= 20
+        if has_title and has_text:
+            it.community_content_type = "original_post"
+            it.classification_reason = "제목+본문 있는 게시글"
+            it.classification_confidence = 0.80
+        elif has_title or it.post_id:
+            it.community_content_type = "original_post"
+            it.classification_reason = "제목 또는 postId로 원글 추정"
+            it.classification_confidence = 0.60
+        else:
+            it.community_content_type = "unknown"
+            it.classification_reason = "분류 근거 부족"
+            it.classification_confidence = 0.30
+
+
 def _aggregate_authors(items: list[RawItem]) -> list[dict]:
     by_author: dict[str, list[RawItem]] = {}
     for it in items:
@@ -403,7 +470,10 @@ async def run_target(target_id: str, store: FirestoreStore | None = None, collec
             store.save_rejected(target_id, rejected)
         return {"collected": len(raw), "passed": 0, "rejected": len(rejected), "clusters": 0}
 
-    # 3) 감정 분류 + eventKey 추출
+    # 3) 커뮤니티 contentType 자동 분류
+    _classify_community_items(passed)
+
+    # 4) 감정 분류 + eventKey 추출
     claude = ClaudeAnalyzer(s)
     await claude.classify_sentiments(passed, target.name)
     await claude.extract_event_keys(passed)

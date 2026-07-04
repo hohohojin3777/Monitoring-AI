@@ -435,6 +435,18 @@ def _doc_to_item(data: dict) -> RawItem:
         matched_entities=data.get("matchedEntities", []) or [],
         sentiment=data.get("sentiment", "neutral"),
         cluster_id=data.get("clusterId"),
+        community_content_type=data.get("communityContentType", ""),
+        board_name=data.get("boardName", ""),
+        community_name=data.get("communityName", ""),
+        post_id=data.get("postId", ""),
+        parent_post_id=data.get("parentPostId", ""),
+        parent_url=data.get("parentUrl", ""),
+        comment_id=data.get("commentId", ""),
+        shared_url=data.get("sharedUrl", ""),
+        article_url=data.get("articleUrl", ""),
+        detected_links=data.get("detectedLinks", []) or [],
+        classification_confidence=data.get("classificationConfidence", 0.0),
+        classification_reason=data.get("classificationReason", ""),
     )
 
 
