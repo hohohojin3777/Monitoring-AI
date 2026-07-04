@@ -26,7 +26,7 @@ const SNS_PLATFORMS = new Set([
 // 커뮤니티
 const COMMUNITY_PLATFORMS = new Set([
   "dcinside", "fmkorea", "clien", "ruliweb", "ppomppu", "bobaedream",
-  "naver_cafe", "mlbpark", "natepan", "todayhumor", "ddanzi", "theqoo",
+  "naver_cafe", "mlbpark", "natepan", "natepann", "todayhumor", "ddanzi", "theqoo",
 ]);
 // 영상: YouTube만
 const VIDEO_PLATFORMS = new Set([
@@ -58,42 +58,47 @@ function getSourceType(c: Cluster): SourceType {
 function needsReview(c: Cluster): boolean {
   if (c.sourceType === "unknown") return true;
   const platforms = c.stats?.platforms ?? [];
-  if (platforms.length === 0) return true;
-  // 뉴스+커뮤니티 혼재
+  if (platforms.length === 0) return !c.sourceType;
   const hasNews = platforms.some((p) => NEWS_PLATFORMS.has(p));
   const hasCommunity = platforms.some((p) => COMMUNITY_PLATFORMS.has(p));
   const hasSNS = platforms.some((p) => SNS_PLATFORMS.has(p));
   const hasVideo = platforms.some((p) => VIDEO_PLATFORMS.has(p));
-  // 영상+뉴스 혼재 = 오분류 의심
   if (hasVideo && hasNews) return true;
-  // 커뮤니티+SNS 혼재
   if (hasCommunity && hasSNS && !hasNews) return true;
-  // sourceType 미지정이고 플랫폼이 어느 범주에도 안 들어감
   if (!c.sourceType) {
-    const typed = hasNews || hasSNS || hasCommunity || hasVideo;
-    if (!typed) return true;
+    if (!hasNews && !hasSNS && !hasCommunity && !hasVideo) return true;
   }
   return false;
+}
+
+// 확인필요 추정 사유
+function reviewReason(c: Cluster): string {
+  const platforms = c.stats?.platforms ?? [];
+  if (platforms.length === 0) return "플랫폼 정보 없음";
+  const hasNews = platforms.some((p) => NEWS_PLATFORMS.has(p));
+  const hasVideo = platforms.some((p) => VIDEO_PLATFORMS.has(p));
+  const hasCommunity = platforms.some((p) => COMMUNITY_PLATFORMS.has(p));
+  const hasSNS = platforms.some((p) => SNS_PLATFORMS.has(p));
+  if (hasVideo && hasNews) return "뉴스+YouTube 혼재 — 영상인지 뉴스보도인지 불명확";
+  if (hasCommunity && hasSNS) return "커뮤니티+SNS 혼재";
+  if (hasCommunity && hasNews) return "커뮤니티+뉴스 혼재";
+  if (!hasNews && !hasSNS && !hasCommunity && !hasVideo) return "알 수 없는 플랫폼";
+  return "소스 분류 불명확";
 }
 
 function matchesSource(c: Cluster, src: SourceTab): boolean {
   if (src === "전체") return true;
   if (src === "확인필요") return needsReview(c);
+  // unknown 항목은 확인필요 탭에만 표시 — 나머지 탭에서 제외
+  if (needsReview(c)) return false;
   const st = getSourceType(c);
-  const platforms = c.stats?.platforms ?? [];
   switch (src) {
-    case "뉴스":
-      return st === "news" || (platforms.some((p) => NEWS_PLATFORMS.has(p)) && !platforms.some((p) => COMMUNITY_PLATFORMS.has(p) || VIDEO_PLATFORMS.has(p)));
-    case "SNS":
-      return st === "sns" || (platforms.some((p) => SNS_PLATFORMS.has(p)) && !platforms.some((p) => NEWS_PLATFORMS.has(p) || COMMUNITY_PLATFORMS.has(p) || VIDEO_PLATFORMS.has(p)));
-    case "커뮤니티":
-      return st === "community" || platforms.some((p) => COMMUNITY_PLATFORMS.has(p));
-    case "영상":
-      return st === "video" || platforms.some((p) => VIDEO_PLATFORMS.has(p));
-    case "공식":
-      return st === "official" || platforms.some((p) => OFFICIAL_PLATFORMS.has(p));
-    default:
-      return false;
+    case "뉴스": return st === "news";
+    case "SNS": return st === "sns";
+    case "커뮤니티": return st === "community";
+    case "영상": return st === "video";
+    case "공식": return st === "official";
+    default: return false;
   }
 }
 
@@ -260,7 +265,12 @@ function ClusterRow({ c, showReclassify = false }: { c: Cluster; showReclassify?
         </div>
 
         {showReclassify && (
-          <ReclassifyButtons c={c} />
+          <div className="mt-2 rounded-md border border-amber-100 bg-amber-50 px-3 py-1.5">
+            <p className="text-[11px] text-amber-700 font-semibold">
+              ⚠ 확인필요 사유: {reviewReason(c)}
+            </p>
+            <ReclassifyButtons c={c} />
+          </div>
         )}
       </div>
     </Link>

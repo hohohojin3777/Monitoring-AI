@@ -69,12 +69,14 @@ OFFICIAL_DOMAINS = {
 PLATFORM_SOURCE_MAP = {
     "naver_news": "news", "daum_news": "news", "google_news": "news",
     "rss": "news", "nate_news": "news",
+    "naver_blog": "blog_cafe",
     "youtube": "video",
     "facebook": "sns", "x": "sns", "twitter": "sns",
     "instagram": "sns", "threads": "sns",
     "dcinside": "community", "fmkorea": "community", "clien": "community",
     "ruliweb": "community", "ppomppu": "community", "bobaedream": "community",
-    "naver_cafe": "community", "mlbpark": "community", "natepan": "community",
+    "naver_cafe": "community", "mlbpark": "community",
+    "natepan": "community", "natepann": "community",
     "todayhumor": "community", "ddanzi": "community", "theqoo": "community",
     "official": "official", "theminjoo": "official",
 }
