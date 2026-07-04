@@ -202,8 +202,8 @@ async def _sim():
 
     # ── RUN 2 ── 같은 이슈에 새 글 유입(작성자 누적 포함) + 중복 재유입
     run2 = [
-        _ri("naver_cafe", "cafe", "https://cafe/10", "김민석 부동산 의혹 검찰 수사 착수", "negative", "회원E"),
-        _ri("naver_news", "news", "https://n.news/11", "김민석 부동산 의혹 추가 폭로 나와", "negative", "기자A"),
+        _ri("naver_cafe", "cafe", "https://cafe/10", "김민석 부동산 의혹 논란 검찰 수사 착수", "negative", "회원E"),
+        _ri("naver_news", "news", "https://n.news/11", "김민석 부동산 의혹 논란 추가 폭로 확산", "negative", "기자A"),
         _ri("naver_news", "news", "https://n.news/1", "김민석 부동산 의혹 논란 확산", "negative"),  # 이미 수집됨→중복
     ]
     r2 = await run_target("sim", store=store, collectors=[FakeCollector(run2)], skip_sns=True)
