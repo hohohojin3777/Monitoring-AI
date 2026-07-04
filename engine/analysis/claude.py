@@ -115,9 +115,8 @@ class ClaudeAnalyzer:
         if not targets:
             return
         if not self.available():
-            import hashlib
-            for it in targets:
-                it.event_key = hashlib.md5((it.title or it.text[:50]).encode()).hexdigest()[:12]
+            # Claude 없으면 event_key 비워둠 — 빈 키는 병합 차단 조건을 발동하지 않음
+            # (md5 해시 폴백은 서로 다른 아이템마다 고유값 → 병합을 전부 막는 부작용 있음)
             return
 
         system = (
@@ -145,12 +144,10 @@ class ClaudeAnalyzer:
             except Exception as e:  # noqa: BLE001
                 logger.error("[claude] eventKey 추출 실패: {}", e)
                 keys = []
-            import hashlib
             for i, it in enumerate(chunk):
                 if i < len(keys) and isinstance(keys[i], str) and keys[i]:
                     it.event_key = keys[i].strip()[:120]
-                else:
-                    it.event_key = hashlib.md5((it.title or it.text[:50]).encode()).hexdigest()[:12]
+                # else: event_key 비워둠 — 빈 키는 병합 차단 조건 발동하지 않음
         logger.info("[claude] eventKey 추출 완료: {}건", len(targets))
 
     # ── 대응안 초안 (관리자 'AI 추천' 버튼) ─────────────────────

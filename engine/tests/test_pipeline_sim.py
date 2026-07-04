@@ -136,6 +136,9 @@ class FakeStore:
     def save_keyword_trend(self, tid, date, doc):
         self.keyword_trend[date] = doc
 
+    async def connect(self):
+        pass  # poll_queue가 호출하는 connect() mock — 실제 연결 불필요
+
     def save_polls(self, tid, polls):
         pass  # 테스트에서 여론조사 저장 불필요
 
