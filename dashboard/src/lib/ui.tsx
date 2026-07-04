@@ -50,8 +50,10 @@ export function resolveIssueBadge(
   if (issueImportance === "핵심") return { label: "핵심", chip: IMPORTANCE_META["핵심"].chip, dot: "bg-blue-500" };
   if (issueImportance === "중요") return { label: "중요", chip: IMPORTANCE_META["중요"].chip, dot: "bg-blue-300" };
   if (issueImportance === "관찰") return { label: "관찰", chip: IMPORTANCE_META["관찰"].chip, dot: "bg-grade-yellow" };
-  // 폴백: 기존 grade
-  if (grade) return GRADE_META[grade] ? { ...GRADE_META[grade], dot: GRADE_META[grade].dot } : GRADE_META.none;
+  // 폴백: 기존 grade — riskLevel 미설정 시 orange/yellow는 "주의" 아닌 "관찰"로 표시
+  // (orange가 "주의"로 보이던 구 로직을 차단 — 새 riskLevel 필드가 채워질 때까지 보수적으로 처리)
+  if (grade === "red") return { label: "위기", chip: RISK_META["위기"].chip, dot: "bg-grade-red" };
+  if (grade === "orange" || grade === "yellow") return { label: "관찰", chip: GRADE_META["yellow"].chip, dot: "bg-grade-yellow" };
   return { label: "일반", chip: GRADE_META.none.chip, dot: "bg-gray-300" };
 }
 

@@ -133,8 +133,8 @@ function matchesFilter(c: Cluster, tab: FilterTag): boolean {
         || c.grade === "red" || c.grade === "orange"
         || (c.patterns ?? []).some((p) => p === "부정다플랫폼" || p === "다플랫폼집단");
     case "주의":
-      // 진짜 리스크가 있는 항목만 — 매체다양성만 있는 중요 뉴스는 제외
-      return c.riskLevel === "주의" || c.filterTag === "주의";
+      // riskLevel이 명시적으로 "주의"일 때만 — filterTag="주의"(구 데이터) 폴백 제거
+      return c.riskLevel === "주의";
     case "위기":
       return c.riskLevel === "위기" || c.riskLevel === "긴급" || c.grade === "red" || c.grade === "orange";
     case "재발": return !!c.reactivated || c.filterTag === "재발";
