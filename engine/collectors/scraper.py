@@ -5,12 +5,15 @@
 
 사이트별 selector 가 있으면 그걸 쓰고, 없으면 일반 추출기(검색결과 페이지에서
 의미있는 링크를 자동 추출)로 처리한다. → 사이트가 많아도 selector 없이 폭넓게 커버.
+
+본문 fetch: community source_type 아이템에 한해 게시글 URL 직접 접속 →
+본문 텍스트·링크를 추출해 content/detected_links 채움 → 키워드 미포함 시 제외.
 """
 from __future__ import annotations
 
 import re
 from datetime import datetime
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 
 from loguru import logger
 
@@ -18,6 +21,74 @@ from ..config import get_settings
 from .base import Collector, RawItem
 from .dateparse import parse_korean_date
 from .sites import SearchSite
+
+# 뉴스 도메인 패턴 — 본문 내 링크가 이 패턴이면 shared_news 분류 힌트
+_NEWS_DOMAIN_RE = re.compile(
+    r"https?://(?:www\.)?(?:"
+    r"news\.naver\.com|n\.news\.naver\.com|news\.daum\.net|v\.daum\.net|"
+    r"news\.nate\.com|yna\.co\.kr|yonhapnews\.co\.kr|"
+    r"chosun\.com|joongang\.co\.kr|donga\.com|hani\.co\.kr|khan\.co\.kr|"
+    r"ohmynews\.com|newsis\.com|etoday\.co\.kr|mt\.co\.kr|sedaily\.com|"
+    r"hankyung\.com|mk\.co\.kr|sbs\.co\.kr|kbs\.co\.kr|mbc\.co\.kr|jtbc\.co\.kr"
+    r")",
+    re.IGNORECASE,
+)
+_URL_IN_TEXT_RE = re.compile(r"https?://[^\s\"'<>\]]{10,}", re.IGNORECASE)
+
+# 본문 fetch용 JS — 주요 컨텐츠 영역 텍스트 + 본문 내 링크 추출
+_FETCH_CONTENT_JS = r"""
+() => {
+  // 댓글/광고/내비 영역 제외하고 본문 후보 선택
+  const IGNORE = ['header','footer','nav','aside','#reply','#comment','.reply','.comment',
+                  '.ad','.advertisement','.sidebar','.gnb','.lnb'];
+  IGNORE.forEach(sel => { try { document.querySelectorAll(sel).forEach(el => el.remove()); } catch(e){} });
+
+  // 텍스트가 가장 긴 블록을 본문으로 판단
+  let best = '', bestLen = 0;
+  const candidates = document.querySelectorAll(
+    'article, .article_body, .post_content, .view_content, .board_view, ' +
+    '.write_div, .xe_content, .read_body, .entry-content, ' +
+    '[class*="content"], [class*="body"], [class*="article"], [id*="article"], main'
+  );
+  candidates.forEach(el => {
+    const t = (el.innerText || '').replace(/\s+/g,' ').trim();
+    if (t.length > bestLen) { bestLen = t.length; best = t; }
+  });
+  if (bestLen < 50) {
+    best = (document.body.innerText || '').replace(/\s+/g,' ').trim().slice(0, 2000);
+  } else {
+    best = best.slice(0, 2000);
+  }
+
+  // 본문 내 링크 수집 (절대 URL, 20개 제한)
+  const links = [];
+  const seen = new Set();
+  document.querySelectorAll('a[href]').forEach(a => {
+    const h = (a.href || '').trim();
+    if (h.startsWith('http') && !seen.has(h)) { seen.add(h); links.push(h); }
+  });
+
+  return { content: best, links: links.slice(0, 20) };
+}
+"""
+
+_LOGIN_PATHS = re.compile(r"/(login|signin|auth|member/login)", re.IGNORECASE)
+
+
+def _is_login_redirect(final_url: str, original_url: str) -> bool:
+    """최종 URL이 로그인 페이지나 원본과 전혀 다른 도메인으로 이동했는지 확인."""
+    if _LOGIN_PATHS.search(final_url):
+        return True
+    try:
+        orig_host = urlsplit(original_url).netloc.lower()
+        final_host = urlsplit(final_url).netloc.lower()
+        # 도메인이 완전히 달라졌으면 리다이렉트로 간주
+        if orig_host and final_host and orig_host not in final_host and final_host not in orig_host:
+            return True
+    except Exception:  # noqa: BLE001
+        pass
+    return False
+
 
 # 검색결과에서 제외할 흔한 내비/푸터 텍스트
 _SKIP_TEXTS = {
@@ -70,6 +141,7 @@ class BrowserCollector(Collector):
         profile_dir: str | None = None,
         headless: bool | None = None,
         limit_per_site: int | None = None,
+        fetch_content: bool = True,
     ) -> None:
         s = get_settings()
         self._sites = sites
@@ -77,6 +149,7 @@ class BrowserCollector(Collector):
         self._headless = s.headless if headless is None else headless
         self._limit = limit_per_site or s.scrape_limit_per_site
         self._window_days = s.window_days
+        self._fetch_content = fetch_content
 
     def available(self) -> bool:
         return bool(self._sites)
@@ -111,7 +184,10 @@ class BrowserCollector(Collector):
             try:
                 for site in self._sites:
                     for kw in keywords:
-                        out += await self._scrape(ctx, site, kw)
+                        items = await self._scrape(ctx, site, kw)
+                        if self._fetch_content and site.source_type == "community":
+                            items = await self._fetch_contents(ctx, items, keywords)
+                        out += items
             finally:
                 await ctx.close()
         logger.info("[browser] {}건 수집 (사이트 {}개)", len(out), len(self._sites))
@@ -216,3 +292,51 @@ class BrowserCollector(Collector):
                 )
             )
         return items
+
+    async def _fetch_contents(
+        self, ctx, items: list[RawItem], keywords: list[str]
+    ) -> list[RawItem]:
+        """각 community 아이템 URL에 직접 접속해 본문·링크 채움.
+
+        - 키워드/후보명이 본문에 없으면 제외 (노이즈 차단)
+        - 로그인 요구·차단·timeout → content 빈 채로 통과, communityContentType=unknown
+        - 댓글 수집 안 함 (본문 페이지 자체만 fetch)
+        """
+        _kw_re = re.compile(
+            "|".join(re.escape(k) for k in keywords) if keywords else r"전당대회",
+            re.IGNORECASE,
+        )
+        passed: list[RawItem] = []
+        for it in items:
+            page = await ctx.new_page()
+            try:
+                await page.goto(it.url, wait_until="domcontentloaded", timeout=20000)
+                final_url = page.url
+                if _is_login_redirect(final_url, it.url):
+                    it.community_content_type = "unknown"
+                    it.classification_reason = "로그인 리다이렉트 또는 접근 차단"
+                    it.classification_confidence = 0.9
+                    passed.append(it)
+                    continue
+                await page.wait_for_timeout(800)
+                result = await page.evaluate(_FETCH_CONTENT_JS)
+                content: str = result.get("content", "")
+                links: list[str] = result.get("links", [])
+
+                # 키워드 포함 여부 체크 (제목 포함)
+                if not _kw_re.search(it.title + " " + content):
+                    continue  # 키워드 없음 — 노이즈로 제외
+
+                it.content = content[:1500]
+                it.detected_links = [lnk for lnk in links if lnk != it.url][:20]
+                passed.append(it)
+            except Exception as e:  # noqa: BLE001
+                logger.warning("[browser] 본문 fetch 실패 {}: {}", it.url[:60], e)
+                it.community_content_type = "unknown"
+                it.classification_reason = f"본문 fetch 실패: {type(e).__name__}"
+                it.classification_confidence = 0.9
+                passed.append(it)
+            finally:
+                await page.close()
+        logger.info("[browser] 본문 fetch: {}건 → {}건 (키워드 필터)", len(items), len(passed))
+        return passed

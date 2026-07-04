@@ -79,6 +79,10 @@ export interface Item {
   sentiment?: string;
   publishedAt?: Timestamp;
   metrics?: { views?: number; likes?: number; comments?: number };
+  communityContentType?: CommunityContentType;
+  sharedUrl?: string;
+  detectedLinks?: string[];
+  classificationReason?: string;
 }
 
 export interface ResponseStep {

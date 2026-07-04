@@ -272,9 +272,11 @@ def _classify_community_items(items: list[RawItem]) -> None:
             continue
 
         # 2) 본문에서 링크 감지
-        links = _URL_RE.findall(text + " " + title)
-        it.detected_links = links[:20]  # 최대 20개 저장
-        news_links = [lnk for lnk in links if _NEWS_DOMAINS_RE.match(lnk)]
+        # detected_links는 scraper._fetch_contents가 이미 채운 경우 그대로 사용
+        if not it.detected_links:
+            links = _URL_RE.findall(text + " " + title)
+            it.detected_links = links[:20]
+        news_links = [lnk for lnk in it.detected_links if _NEWS_DOMAINS_RE.match(lnk)]
 
         if it.shared_url and _NEWS_DOMAINS_RE.match(it.shared_url):
             news_links.append(it.shared_url)
@@ -290,8 +292,14 @@ def _classify_community_items(items: list[RawItem]) -> None:
 
         # 3) original_post 판단
         has_title = len(title.strip()) >= 5
+        # content가 본문 fetch로 채워진 경우 신뢰도 높음
+        content_fetched = len(text.strip()) >= 50
         has_text = len(text.strip()) >= 20
-        if has_title and has_text:
+        if has_title and content_fetched:
+            it.community_content_type = "original_post"
+            it.classification_reason = "제목+본문 fetch 완료"
+            it.classification_confidence = 0.90
+        elif has_title and has_text:
             it.community_content_type = "original_post"
             it.classification_reason = "제목+본문 있는 게시글"
             it.classification_confidence = 0.80
